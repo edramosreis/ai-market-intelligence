@@ -1,6 +1,6 @@
 # Incremental delivery roadmap
 
-Status: **Milestone 1 reviewed and in progress; database foundation implemented.**
+Status: **Milestone 1 reviewed and in progress; database foundation and ingestion verified.**
 
 Aim for roughly equal depth in data engineering and AI engineering across the completed project. Early work necessarily establishes the data foundation; later milestones add retrieval, agent tools, and evaluation. Technologies below are candidates justified by each checkpoint, not dependencies to add immediately.
 
@@ -10,7 +10,7 @@ Keep README, architecture diagrams, tests, data semantics, decision explanations
 
 Deliver Python, one public crypto source, BTC ingestion, a normalized PostgreSQL schema and migrations, deterministic FastAPI queries, an OpenAI agent using read-only function calls, Docker Compose, and automated tests. The approved contract uses Coinbase Exchange spot BTC/USD, five-minute candles, retained history initially from 2020-01-01 with configurable earlier starts, coarser derived candles, and monthly resumable backfill chunks. Historical questions must reach at least 2024. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
-Completed checkpoint: Python package/tooling/lockfile, pinned runtime and PostgreSQL containers, five-table schema and seeds, restricted roles, migration CLI, disposable PostgreSQL tests, and setup/quality documentation. Remaining checkpoints: replayable provider ingestion and real backfill, deterministic query/API behavior, grounded agent tools, and full live-demo acceptance. No candle history has been loaded yet; Milestone 1 is not complete.
+Verified checkpoints: Python package/tooling/lockfile, pinned runtime and PostgreSQL containers, five-table schema and seeds, restricted roles, migration CLI, disposable PostgreSQL tests, replayable Coinbase ingestion with monthly atomic persistence/resume, and real history from 2020-01-01 with explicit source gaps. See README for exact live-backfill, refresh, replay, and coverage evidence. Remaining checkpoints: deterministic query/API behavior, grounded agent tools, and full live-demo acceptance. Milestone 1 is not complete.
 
 Data engineering emphasis: grain and units, exact decimals, UTC boundaries, source coverage, idempotency, corrections, transactional writes, and recovery from failed ingestion.
 

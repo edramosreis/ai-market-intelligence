@@ -2,7 +2,7 @@
 
 A market research platform being built to collect historical data, produce reproducible analysis, and answer questions grounded in stored market observations.
 
-**Current state: Milestone 1 database foundation implemented and verified.** The Python package, locked dependencies, containers, migrations, restricted roles, and PostgreSQL integration tests are runnable. Ingestion, HTTP queries, and the AI agent are the remaining Milestone 1 checkpoints. No historical candles have been loaded yet.
+**Current state: Milestone 1 database foundation and Coinbase ingestion implemented and verified.** The Python package, locked dependencies, containers, migrations, restricted roles, and manual backfill/refresh CLI are runnable. Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. HTTP queries and the AI agent are the remaining Milestone 1 checkpoints.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -10,9 +10,11 @@ The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-m
 - [ROADMAP.md](ROADMAP.md): seven separate milestones and suggested commit boundaries.
 - [AGENTS.md](AGENTS.md): contributor commands, scope, and conventions.
 
-## Start the foundation
+## Start the local environment
 
 Run commands from the repository root. Start Docker Desktop with Linux containers and Docker Compose v2. A host Python 3.14 interpreter is needed for credential generation; application containers use Python 3.14.8 and PostgreSQL 18.6, with both images pinned by digest. Host development supports Python 3.14.x.
+
+If Docker Desktop reports **WSL update required** on Windows, update WSL with `wsl --update` and restart Desktop before running Compose commands.
 
 Generate separate random local passwords without printing them:
 
@@ -54,7 +56,7 @@ This foundation is for local development; it has no HTTP application or remote a
 | `ingestion_runs` | Request windows, lifecycle, counts, and audit identity |
 | `candles` | Exact OHLCV, five-minute UTC starts, and ingestion provenance |
 
-PostgreSQL enforces identity, unique candle grain, five-minute alignment, `numeric(38,18)`, finite positive prices, finite non-negative volume, OHLC bounds, and run windows/lifecycle/counts. Each candle links to a run for the same market and interval through a composite foreign key. Application validation of naive timestamps, excess decimal scale, closed-candle eligibility, and payloads belongs to ingestion; PostgreSQL can coerce timestamps or round decimals, so these checks must precede inserts.
+PostgreSQL enforces identity, unique candle grain, five-minute alignment, `numeric(38,18)`, finite positive prices, finite non-negative volume, OHLC bounds, and run windows/lifecycle/counts. Each candle links to a run for the same market and interval through a composite foreign key. Ingestion validates naive timestamps, excess decimal scale, closed-candle eligibility, and payloads before persistence; PostgreSQL can coerce timestamps or round decimals, so these checks precede inserts.
 
 | Role | Grants |
 | --- | --- |
@@ -63,6 +65,56 @@ PostgreSQL enforces identity, unique candle grain, five-minute alignment, `numer
 | Reader | SELECT on foundation tables only |
 
 Both restricted roles can read the migration revision, cannot delete rows or create permanent/temporary tables, and have no elevated role flags. The check container receives only reader credentials. The future API/agent will use this reader role.
+
+## Load and refresh historical candles
+
+After building and initializing the database, start with a small live range and replay it:
+
+```powershell
+docker compose run --rm ingest ingest --start 2024-01-01 --end 2024-01-02
+docker compose run --rm ingest ingest --start 2024-01-01 --end 2024-01-02
+```
+
+The first run inserts available observations. An identical replay reports them as `unchanged`, without changing candle provenance. Provider corrections update only affected observations and preserve their first ingestion time. These commands call the public Coinbase Exchange API without a key or paid data subscription; they write real candles to the local development volume.
+
+Load history from the approved default start, skipping previously successful matching month ranges:
+
+```powershell
+docker compose run --rm ingest ingest --resume
+```
+
+The default start is **2020-01-01 UTC**. The exclusive default end is the five-minute boundary at or before **current UTC time minus 60 seconds**. This excludes unfinished candles and allows a short settling period. The range is divided at UTC calendar-month boundaries; the first and last chunks are clipped. Requests contain at most 250 five-minute buckets, below Coinbase's 300-candle limit, and start at least 0.5 seconds apart. A multi-year load makes thousands of sequential requests and can take tens of minutes; progress appears after each committed month.
+
+To load an earlier period, refresh the most recent 72 hours, or repair a particular range:
+
+```powershell
+docker compose run --rm ingest ingest --start 2017-01-01 --end 2017-01-02
+docker compose run --rm ingest ingest --refresh
+docker compose run --rm ingest ingest --start 2024-01-01 --end 2024-02-01
+```
+
+Earlier history is subject to source availability. Date-only arguments mean midnight UTC; full timestamps must include `Z` or an explicit UTC offset. Both boundaries must align to five minutes, and `--end` is exclusive. An explicit end after the closed-candle cutoff is rejected. `--start` and `--refresh` are mutually exclusive. No scheduler or automatic refresh runs in the background.
+
+Each month gets a committed `running` audit before its first HTTP request. The entire chunk is fetched and validated before one transaction writes candles and marks the run successful. Malformed rows or conflicting duplicates fail the chunk. Earlier months remain committed. Failure output includes a safe error code, failed range, audit identity where available, and recovery instructions; it excludes provider bodies and credentials. If the failure audit cannot be written, `audit_recorded` is false and the original run can remain `running`.
+
+`--resume` skips only **exact matching successful chunk ranges** and reports current stored coverage for them. A successful run can contain absent buckets: it means processing succeeded, not that Coinbase supplied every observation. Missing buckets remain absent. Do not use resume to repair a successful but gapped chunk; request that range again without `--resume`. A later default end will reprocess the changed final month. For an exact restart or repeatable comparison, reuse an explicit `--start` and `--end`.
+
+Progress is newline-delimited JSON. `expected` counts requested five-minute buckets; `received` counts distinct validated observations after filtering. A fetched chunk's `missing_buckets` uses provider coverage; a skipped chunk uses stored coverage, as identified by `coverage_basis`. The final summary keeps those totals separate. Stored observations absent from a later provider response are retained. API coverage calculations will independently inspect stored rows at the query checkpoint.
+
+Transient connection failures, timeouts, HTTP 429, and selected 5xx responses get up to five attempts with backoff/jitter and valid `Retry-After` guidance. Connect/read timeouts are bounded; the default fetch/validation budget is 600 seconds per chunk. `--max-seconds` adds an optional command budget, checked between requests and chunks. A synchronous request or database operation already in progress must return before its deadline is checked. `--request-interval` accepts 0.1–60 seconds; the default remains conservative. One advisory lock prevents cooperating ingestion jobs from writing concurrently. Graceful interruption records failure where possible; after an abrupt termination, resume retries unfinished ranges.
+
+Live contract check on 2026-10-05: product metadata identified BTC as the base asset and USD as the quote asset. For **11:55–12:00 UTC**, the candle's volume **17.88862151** exactly matched the sum of **1,310** public trades' BTC `size` values. This validates base-volume interpretation for that sample; it does not establish uninterrupted historical coverage. Wire order, historical omissions, and request limits follow the [Coinbase candle reference](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles).
+
+The implemented adapter also fetched and validated all **12 expected candles** for 00:00–01:00 UTC on both **2020-01-01** and **2024-01-01**, without authentication. The complete deterministic suite passed **113 tests** against PostgreSQL 18.6, including actual ingestion-role transactions. A live 2024-01-01 00:00–01:00 UTC ingestion inserted 12 candles; replaying it reported 12 unchanged, zero inserts, and zero updates.
+
+Historical verification on **2026-10-05**:
+
+- The initial **2020-01-01 00:00 to 2026-10-05 14:35 UTC** range completed in **82 successful chunks**. Independent reader-role queries found **710,891 stored observations**, **711,247 expected buckets**, and **356 absent buckets**.
+- Exact-range resume skipped all 82 chunks with zero writes and still reported 356 stored gaps. It did not fetch the skipped source windows.
+- A normal 72-hour refresh through **15:00 UTC** received all 864 expected candles: **5 inserts, 859 unchanged, zero updates, zero gaps**.
+- After refresh, the stored **2020-01-01 00:00 to 2026-10-05 15:00 UTC** range contained **710,896 of 711,252 expected candles** (about **99.95% coverage**). The latest candle opens at **14:55 UTC**. All 85 audit runs succeeded; none remained failed or running.
+
+The 356 absent buckets remain real coverage gaps in stored history. A separate narrow raw request for **2020-01-30 17:00–18:40 UTC** also returned no observations inside that 20-bucket gap, confirming that sample was not lost at an ingestion page boundary. The reason for source omissions cannot be determined from OHLCV alone. These measurements describe this local snapshot; future provider corrections or explicit repairs can change it. Dataset and verification logs stay outside Git.
 
 ## Run tests
 
@@ -73,9 +125,17 @@ docker compose -f compose.test.yaml up --build --abort-on-container-exit --exit-
 docker compose -f compose.test.yaml down
 ```
 
-The first command returns the test runner's exit code. The second removes only test containers/network; run it even after failure. Expected rejection errors appear in test database logs. Each container start initializes an empty database and applies the same migration as development; fixtures use tiny synthetic candles and roll back test writes.
+The first command returns the test runner's exit code. The second removes only test containers/network; run it even after failure. Expected rejection errors appear in test database logs. Each container start initializes an empty database and applies the same migration as development. Fixtures use synthetic candles and roll back their writes; tests that exercise committed monthly ingestion explicitly clean their rows in this isolated database.
 
-The foundation suite covers configuration/secret masking, migration/schema agreement, downgrade/reapply, repeatable bootstrap, exact decimals/UTC, constraints/FKs, transaction rollback, and actual role permissions. No Coinbase or OpenAI calls are required.
+The deterministic suite covers configuration/secret masking, migration/schema agreement, downgrade/reapply, repeatable bootstrap, exact decimals/UTC, constraints/FKs, transaction rollback, and actual role permissions. Ingestion tests add payload ordering/filtering, numeric validation, paging, retries, deadlines, gaps, duplicate handling, replay, corrections, atomic writes/audits, failed-month preservation, interruption, writer locking, and resume. PostgreSQL ingestion tests use the actual restricted ingestion role with a fake HTTP transport. No Coinbase or OpenAI calls are required; live checks are separate manual operations.
+
+To reproduce the two historical live adapter samples after installing the host dependencies:
+
+```powershell
+.venv\Scripts\python.exe scripts/check_coinbase_live.py
+```
+
+This opt-in check calls Coinbase for 00:00–01:00 UTC on 2020-01-01 and 2024-01-01 through the real adapter. It verifies product identity, parses/validates candles, and prints expected/validated/missing counts. Each window has 12 expected candles. Samples remain in memory; the script never loads database credentials or writes to PostgreSQL. It returns nonzero on a provider/validation failure or missing sampled buckets. It is separate from pytest and does not certify coverage outside those two hours.
 
 ## Host development and quality checks
 
@@ -87,7 +147,7 @@ python -m venv .tools
 .tools\Scripts\uv.exe sync --locked --no-python-downloads
 ```
 
-If uv is already installed, `uv sync --locked --no-python-downloads` is equivalent. Environments and caches are ignored. Runtime dependencies are SQLAlchemy Core, psycopg, Alembic, and Pydantic Settings; pytest, Ruff, and mypy are development dependencies. FastAPI and the OpenAI SDK will be added at their checkpoints.
+If uv is already installed, `uv sync --locked --no-python-downloads` is equivalent. Environments and caches are ignored. Runtime dependencies are SQLAlchemy Core, psycopg, Alembic, Pydantic Settings, and HTTPX; pytest, Ruff, and mypy are development dependencies. FastAPI and the OpenAI SDK will be added at their checkpoints.
 
 ```powershell
 .venv\Scripts\ruff.exe format --check src migrations tests scripts
@@ -103,6 +163,7 @@ The same database commands can run on the host after starting PostgreSQL:
 .venv\Scripts\python.exe -m market_intelligence init-db
 .venv\Scripts\python.exe -m market_intelligence check-db
 .venv\Scripts\python.exe -m market_intelligence check-db --role ingest
+.venv\Scripts\python.exe -m market_intelligence ingest --start 2024-01-01 --end 2024-01-02
 ```
 
 For schema changes, update Core metadata, generate/review an Alembic revision, then apply it with `init-db` so grants are reapplied. Review PostgreSQL alignment checks carefully: autogeneration can escape `%` as `%%`. Keep applied revisions immutable. `.venv\Scripts\alembic.exe upgrade head --sql` generates offline SQL without credentials. Verify migrations against PostgreSQL rather than SQLite.
@@ -122,4 +183,4 @@ Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bea
 
 ## Next checkpoint
 
-Implement the Coinbase adapter and replayable ingestion: verify BTC volume units, parse exact decimals, filter closed candles, fetch bounded pages, validate monthly chunks, persist atomically, report gaps, and resume failures. Verify a small live range and replay behavior before loading history from 2020-01-01. Then add deterministic historical queries/FastAPI and grounded agent tools. Milestone 1 is complete only when the entire slice meets its acceptance criteria.
+Add deterministic historical queries/FastAPI with explicit coverage, provenance, and complete coarser candles. Ground the agent's read-only tools in those same query functions. Milestone 1 is complete only when the entire slice meets its acceptance criteria.
