@@ -1,0 +1,49 @@
+# Local configuration and secrets. Only the placeholder template is public.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+.secrets/
+secrets/
+credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/
+
+# Python environments, caches, and generated packages.
+.venv/
+.tools/
+.cache/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+build/
+dist/
+*.egg-info/
+
+# Local datasets and operational output; deterministic fixtures belong in tests/fixtures.
+data/
+logs/
+*.log
+*.dump
+*.backup
+pgdata/
+artifacts/
+
+# Local editor and operating-system output.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
