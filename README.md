@@ -1,6 +1,6 @@
-# AI Market Intelligence Platform
+# AI Market Intelligence Platform [WIP]
 
-A portfolio project demonstrating data engineering and AI engineering through an incrementally developed financial-data platform.
+A market research platform being built to collect historical data, produce reproducible analysis, and answer questions grounded in stored market observations.
 
 **Current state: Milestone 1 database foundation implemented and verified.** The Python package, locked dependencies, containers, migrations, restricted roles, and PostgreSQL integration tests are runnable. Ingestion, HTTP queries, and the AI agent are the remaining Milestone 1 checkpoints. No historical candles have been loaded yet.
 
