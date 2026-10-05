@@ -9,6 +9,7 @@ def create_db_engine(settings: DatabaseSettings, role: DatabaseRole) -> Engine:
         pool_pre_ping=True,
         pool_size=3,
         max_overflow=0,
+        pool_timeout=5,
         hide_parameters=True,
         connect_args={
             "connect_timeout": 5,

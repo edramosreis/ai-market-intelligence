@@ -2,11 +2,11 @@
 
 ## Project Structure & Module Organization
 
-Milestone 1 uses Python 3.14, uv, SQLAlchemy Core/psycopg, Alembic, Pydantic Settings, HTTPX, and PostgreSQL 18. `src/market_intelligence/` contains configuration and CLI; `db/` contains Core metadata, role setup, connections, and chunk persistence; `ingestion/` contains candle/window validation, the Coinbase client, and monthly orchestration. `migrations/` contains immutable revisions and reference seeds. `tests/unit/` and `tests/integration/` contain deterministic configuration, provider, and PostgreSQL checks. `scripts/init_local_env.py` creates ignored credentials. `Dockerfile`, `compose.yaml`, and standalone `compose.test.yaml` support runtime jobs and isolated tests. Keep generated output, environments, and datasets out of version control. Add `assets/` only when static resources exist.
+Milestone 1 uses Python 3.14, uv, SQLAlchemy Core/psycopg, Alembic, Pydantic Settings, HTTPX, FastAPI/Uvicorn, and PostgreSQL 18. `src/market_intelligence/` contains configuration, CLI, and HTTP transport (`api.py`); `db/` contains Core metadata, role setup, connections, and chunk persistence; `ingestion/` contains candle/window validation, the Coinbase client, and monthly orchestration; `queries/` contains shared read-only calculations and evidence models. `migrations/` contains immutable revisions and reference seeds. `tests/unit/` and `tests/integration/` contain deterministic provider, query/API, and PostgreSQL checks. `scripts/init_local_env.py` creates ignored credentials. `Dockerfile`, `compose.yaml`, and standalone `compose.test.yaml` support runtime jobs, the local API, and isolated tests. Keep generated output, environments, and datasets out of version control. Add `assets/` only when static resources exist.
 
 ## Architecture Review and Scope
 
-The Milestone 1 architecture has been discussed and the user approved the foundation and ingestion. The accepted contract is Coinbase Exchange spot BTC/USD, completed five-minute candles, initial backfill from 2020-01-01, configurable earlier dates, and retained history. Foundation and ingestion are implemented; see README for live verification state. Query/API and agent checkpoints remain. Review `ARCHITECTURE.md` before continuing. Keep future components in the seven-milestone roadmap rather than scaffolding them early. Material source, data-model, technology, or direction changes require discussion; minor choices can be made within the reviewed design. OpenAI model/spend remains a decision for the agent checkpoint.
+The Milestone 1 architecture has been discussed and the user approved foundation, ingestion, and query/API implementation. The accepted contract is Coinbase Exchange spot BTC/USD, completed five-minute candles, initial backfill from 2020-01-01, configurable earlier dates, and retained history. Foundation, ingestion, and query/API are implemented; see README for live verification state. The agent checkpoint remains. Review `ARCHITECTURE.md` before continuing. Keep future components in the seven-milestone roadmap rather than scaffolding them early. Material source, data-model, technology, or direction changes require discussion; minor choices can be made within the reviewed design. OpenAI model/spend remains a decision for the agent checkpoint.
 
 ## Build, Test, and Development Commands
 
@@ -18,6 +18,10 @@ Run from the repository root; full installation instructions are in `README.md`.
 - `docker compose up -d --wait db`: start persistent local PostgreSQL.
 - `docker compose run --rm migrate`: provision roles, migrate, and apply grants.
 - `docker compose run --rm check`: verify schema/market with reader credentials.
+- `docker compose up -d --wait api`: start localhost HTTP API after explicit migrations.
+- `docker compose stop api`: stop only the HTTP service.
+- `.venv\Scripts\python.exe -m market_intelligence serve`: equivalent host API on 127.0.0.1:8000.
+- `.venv\Scripts\python.exe scripts/check_market_api.py`: opt-in HTTP check of stored 2020/2024 history; requires API/backfill, performs no writes.
 - `docker compose run --rm ingest ingest --start 2024-01-01 --end 2024-01-02`: small live historical load/replay.
 - `docker compose run --rm ingest ingest --resume`: historical load from 2020, skipping exact successful chunks.
 - `docker compose run --rm ingest ingest --refresh`: replay the most recent 72 hours.
@@ -49,6 +53,8 @@ Use descriptive names, four-space indentation, Ruff formatting with a 100-charac
 Add meaningful pytest checks alongside new behavior and fixes. Integration tests use only the dedicated `db-test` container/database with memory-backed storage, never the development dataset or SQLite. Keep synthetic fixtures small and roll back test writes. Verify migrations, transactional behavior, and privileges against real PostgreSQL. Live provider/model smoke checks remain opt-in and separate from deterministic tests. Review generated migration DDL, including percent operators and constraint names.
 
 Committed ingestion tests explicitly clean candles/runs in the guarded isolated database. Inject HTTP transport and clock/sleeper for deterministic retries and deadlines. Preserve unchanged candle provenance, atomic candle/audit commits, earlier completed months, and gap-aware resume semantics. Do not infer coverage from the latest timestamp or treat a successful gapped run as complete coverage.
+
+Queries use actual reader credentials, read-only repeatable transactions, UTC epoch-aligned output grids, and Decimal JSON strings. Test hand-calculated metrics, exact half-open windows, coalesced/truncated gap ranges, derived constituent coverage, keyset cursor binding, staleness, HTTP errors, and concurrent-correction snapshot consistency. Full-window metrics are unavailable when any canonical bucket is absent. A page's coverage describes the whole requested window; separate pages are separate snapshots. Query test fixtures clean committed synthetic rows only in the guarded test database.
 
 ## Commit & Pull Request Guidelines
 

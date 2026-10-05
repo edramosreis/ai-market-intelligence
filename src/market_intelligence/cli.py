@@ -131,6 +131,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     subcommands.add_parser("init-db", help="Provision local roles, migrate, and install grants")
     check = subcommands.add_parser("check-db", help="Verify connection and schema revision")
     check.add_argument("--role", choices=[role.value for role in DatabaseRole], default="read")
+    server = subcommands.add_parser("serve", help="Run the read-only historical market API")
+    server.add_argument("--host", default="127.0.0.1")
+    server.add_argument("--port", type=int, default=8000)
     ingestion = subcommands.add_parser(
         "ingest", help="Backfill or refresh Coinbase BTC/USD candles"
     )
@@ -158,6 +161,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "init-db":
             initialize_database(settings)
             print("Database initialized; migrations and role grants applied.")
+        elif args.command == "serve":
+            import uvicorn
+
+            from market_intelligence.api import create_app
+
+            if not 1 <= args.port <= 65535:
+                raise ValueError("API port must be between 1 and 65535")
+            settings.credentials(DatabaseRole.READ)
+            uvicorn.run(
+                create_app(database_settings=settings),
+                host=args.host,
+                port=args.port,
+                access_log=False,
+            )
         elif args.command == "ingest":
             run_ingestion(args, settings)
         else:

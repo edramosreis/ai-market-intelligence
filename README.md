@@ -2,7 +2,7 @@
 
 A market research platform being built to collect historical data, produce reproducible analysis, and answer questions grounded in stored market observations.
 
-**Current state: Milestone 1 database foundation and Coinbase ingestion implemented and verified.** The Python package, locked dependencies, containers, migrations, restricted roles, and manual backfill/refresh CLI are runnable. Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. HTTP queries and the AI agent are the remaining Milestone 1 checkpoints.
+**Current state: Milestone 1 foundation, Coinbase ingestion, and historical query/API implemented and verified.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only HTTP API serves stored candles, derived bars, coverage, latest observations, and deterministic summaries. The AI agent is the remaining Milestone 1 checkpoint.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -44,7 +44,7 @@ The localhost binding is the intended access boundary, not a security guarantee 
 
 ## Remote demos
 
-This foundation is for local development; it has no HTTP application or remote access endpoint yet. Once the API exists, a remote demo should expose only the app through authenticated HTTPS, using an access-controlled tunnel or a separate hosted environment. Keep PostgreSQL and the Docker daemon private. Before inviting testers, add application authentication, request limits, and model-spend limits at the relevant checkpoint. Sharing a Git repository lets others run their own local copy with independently generated credentials. Never share your `.env`.
+The HTTP API binds to localhost and is intended for local development. A remote demo should expose only the app through authenticated HTTPS, using an access-controlled tunnel or a separate hosted environment. Keep PostgreSQL and the Docker daemon private. Before inviting testers, add application authentication, request limits, and model-spend limits at the relevant checkpoint. Sharing a Git repository lets others run their own local copy with independently generated credentials and their own initially empty database. Never share your `.env`.
 
 ## Schema and access
 
@@ -116,6 +116,47 @@ Historical verification on **2026-10-05**:
 
 The 356 absent buckets remain real coverage gaps in stored history. A separate narrow raw request for **2020-01-30 17:00–18:40 UTC** also returned no observations inside that 20-bucket gap, confirming that sample was not lost at an ingestion page boundary. The reason for source omissions cannot be determined from OHLCV alone. These measurements describe this local snapshot; future provider corrections or explicit repairs can change it. Dataset and verification logs stay outside Git.
 
+## Query stored history through HTTP
+
+After database initialization, start the API:
+
+```powershell
+docker compose up -d --wait api
+```
+
+Open [interactive API documentation](http://127.0.0.1:8000/docs). Readiness checks database access and revision `0001`; an unavailable database or unexpected revision returns 503. Liveness does not depend on the database. The API receives only reader credentials, creates no schema or data, and makes no Coinbase or OpenAI calls. Run migrations explicitly before starting it.
+
+Examples using seeded market id `1` (discover ids through `/v1/markets`):
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8000/v1/markets'
+Invoke-RestMethod 'http://127.0.0.1:8000/v1/markets/1/latest'
+Invoke-RestMethod 'http://127.0.0.1:8000/v1/markets/1/summary?start=2024-01-01&end=2024-01-02'
+Invoke-RestMethod 'http://127.0.0.1:8000/v1/markets/1/candles?start=2024-01-01&end=2024-01-02&interval_seconds=3600&limit=24'
+```
+
+Dates mean midnight UTC; timestamps require an offset. Windows are half-open and align to five minutes. Derived output intervals are **900, 3600, or 86400 seconds**; their windows must align to that interval's UTC epoch grid (UTC midnight for daily bars). Rows are ascending; the page limit is 1–500 (default 200). Send `next_cursor` as `cursor` with the same market, start/end, and interval for another page; URL-encode it with your HTTP client's parameter builder. `next_cursor: null` ends pagination. Absent derived groups remain gaps; partial groups include constituent counts and `null` full-bar OHLCV.
+
+Each page reports coverage of the **entire requested canonical window**, independently of page length. Every response reads one repeatable, read-only snapshot; separate pages use separate snapshots, so restart pagination if ingestion corrections occur between pages. Cursors are validated continuation positions, not authorization tokens.
+
+Summaries calculate the first required bucket's open, last required bucket's close, high/low, summed BTC volume, and open-to-close return. If any required bucket is absent, all full-window metrics are `null`. Coverage is `incomplete` with some rows or `no_data` with zero rows. Missing five-minute ranges are coalesced, with at most 50 details, total range count, a truncation flag, and exact missing bucket count. Provenance includes first/last ingestion times and contributing run counts; canonical candles also expose their last ingestion run id.
+
+Decimal prices and volume serialize as **JSON strings**, preserving precision. Return percentages and coverage ratios use eight decimal places with Decimal `ROUND_HALF_EVEN`; prices and volume are not rounded for presentation. Latest results report age from the candle's end to server UTC time and mark it stale when age exceeds 900 seconds. Only observations eligible under the existing completed-candle cutoff are returned. Future windows report absent coverage.
+
+Optional `.env` settings: `API_PORT=8000`, `API_MAX_WINDOW_DAYS=3653`, and `API_STALE_AFTER_SECONDS=900`. The roughly ten-year request-width limit is independent of retention or how old requested dates are. Invalid ranges/intervals/cursors return 422, unknown market ids return 404, and unavailable database reads return a sanitized 503. The database pool waits at most five seconds for a connection, connect timeout is five seconds, and each SQL statement has a fifteen-second timeout.
+
+The host equivalent is `.venv\Scripts\python.exe -m market_intelligence serve` after installing locked dependencies and starting PostgreSQL. Stop only the API with `docker compose stop api`. After code/dependency changes, rebuild with `docker compose build migrate` and recreate it with `docker compose up -d --wait api`.
+
+Opt-in check against an already backfilled local database:
+
+```powershell
+.venv\Scripts\python.exe scripts/check_market_api.py
+```
+
+This checks HTTP health, both 2020-01-01 and 2024-01-01 summaries, their 24 derived hourly bars, and latest freshness. It performs no database writes or external provider calls. It needs the documented backfill and a running API; it is separate from deterministic tests.
+
+Query/API verification on **2026-10-05**: the full isolated PostgreSQL suite passed **165 tests** (81 unit and 84 integration). HTTP summaries for both sampled days matched independent reader-role SQL for opening/closing prices, return, high/low, and volume. The known **2020-01-30 17:00–18:40 UTC** gap returned `no_data`, 20 missing buckets, and unavailable metrics. The full stored range through **2026-10-05 15:00 UTC** returned `incomplete`, **710,896 actual buckets and 356 missing**, matching SQL; its summary request plus independent SQL check took about 0.85 seconds in this local sample. A multi-year daily request returned 500 rows and a continuation cursor. Latest correctly reported stale data after the last manual refresh. These are local observations, not throughput guarantees; the API checks did not alter the stored dataset.
+
 ## Run tests
 
 The full suite uses a separate container, network, database name, and memory-backed PostgreSQL storage, with no published port or development volume. Fixtures refuse integration tests unless host is `db-test` and database is `market_intelligence_test`.
@@ -128,6 +169,8 @@ docker compose -f compose.test.yaml down
 The first command returns the test runner's exit code. The second removes only test containers/network; run it even after failure. Expected rejection errors appear in test database logs. Each container start initializes an empty database and applies the same migration as development. Fixtures use synthetic candles and roll back their writes; tests that exercise committed monthly ingestion explicitly clean their rows in this isolated database.
 
 The deterministic suite covers configuration/secret masking, migration/schema agreement, downgrade/reapply, repeatable bootstrap, exact decimals/UTC, constraints/FKs, transaction rollback, and actual role permissions. Ingestion tests add payload ordering/filtering, numeric validation, paging, retries, deadlines, gaps, duplicate handling, replay, corrections, atomic writes/audits, failed-month preservation, interruption, writer locking, and resume. PostgreSQL ingestion tests use the actual restricted ingestion role with a fake HTTP transport. No Coinbase or OpenAI calls are required; live checks are separate manual operations.
+
+Query/API tests add hand-calculated analytics, complete/incomplete derived bars, half-open UTC windows, coalesced and truncated missing ranges, cursor binding and pagination across gaps, exact decimal JSON, latest staleness, controlled HTTP errors, and consistent snapshots during concurrent corrections. They use actual reader credentials and committed synthetic fixtures that are cleaned only in the guarded test database.
 
 To reproduce the two historical live adapter samples after installing the host dependencies:
 
@@ -147,7 +190,7 @@ python -m venv .tools
 .tools\Scripts\uv.exe sync --locked --no-python-downloads
 ```
 
-If uv is already installed, `uv sync --locked --no-python-downloads` is equivalent. Environments and caches are ignored. Runtime dependencies are SQLAlchemy Core, psycopg, Alembic, Pydantic Settings, and HTTPX; pytest, Ruff, and mypy are development dependencies. FastAPI and the OpenAI SDK will be added at their checkpoints.
+If uv is already installed, `uv sync --locked --no-python-downloads` is equivalent. Environments and caches are ignored. Runtime dependencies include SQLAlchemy Core, psycopg, Alembic, Pydantic Settings, HTTPX, FastAPI, and Uvicorn; pytest, Ruff, and mypy are development dependencies. The OpenAI SDK will be added at the agent checkpoint.
 
 ```powershell
 .venv\Scripts\ruff.exe format --check src migrations tests scripts
@@ -183,4 +226,4 @@ Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bea
 
 ## Next checkpoint
 
-Add deterministic historical queries/FastAPI with explicit coverage, provenance, and complete coarser candles. Ground the agent's read-only tools in those same query functions. Milestone 1 is complete only when the entire slice meets its acceptance criteria.
+Ground the agent's read-only tools in the implemented query functions. Choose the OpenAI model and smoke-test spending at that checkpoint. Milestone 1 is complete only when the entire slice meets its acceptance criteria.
