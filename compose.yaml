@@ -22,7 +22,7 @@ services:
     build:
       context: .
       target: runtime
-    image: ai-market-intelligence:foundation
+    image: ai-market-intelligence:local
     command: [init-db]
     depends_on:
       db:
@@ -40,7 +40,7 @@ services:
 
   check:
     profiles: [tools]
-    image: ai-market-intelligence:foundation
+    image: ai-market-intelligence:local
     command: [check-db]
     depends_on:
       db:
@@ -51,6 +51,20 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?Generate .env first}
       POSTGRES_READ_USER: ${POSTGRES_READ_USER:?Generate .env first}
       POSTGRES_READ_PASSWORD: ${POSTGRES_READ_PASSWORD:?Generate .env first}
+
+  ingest:
+    profiles: [tools]
+    image: ai-market-intelligence:local
+    command: [ingest]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:?Generate .env first}
+      POSTGRES_INGEST_USER: ${POSTGRES_INGEST_USER:?Generate .env first}
+      POSTGRES_INGEST_PASSWORD: ${POSTGRES_INGEST_PASSWORD:?Generate .env first}
 
 volumes:
   postgres_data:

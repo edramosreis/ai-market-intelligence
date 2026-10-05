@@ -1,8 +1,8 @@
 # Milestone 1 architecture
 
-Status: **reviewed; database foundation implemented. Milestone 1 remains in progress.**
+Status: **reviewed; database foundation and ingestion implemented and verified. Milestone 1 remains in progress.**
 
-The user approved Coinbase spot BTC/USD, five-minute candles, an initial backfill from 2020-01-01 with earlier dates configurable, and beginning the foundation. The package, locked tooling, pinned local containers, five-table schema, reference seeds, restricted roles, migrations, and PostgreSQL tests are implemented. Ingestion, API/query functions, and the agent below describe the remaining reviewed design. No candle history has been loaded. Material direction changes remain reviewable.
+The user approved Coinbase spot BTC/USD, five-minute candles, an initial backfill from 2020-01-01 with earlier dates configurable, and implementation of the foundation and ingestion. The package, locked tooling, pinned local containers, five-table schema, reference seeds, restricted roles, migrations, provider client, and replayable monthly ingestion CLI are implemented and tested. The initial 2020-to-2026 backfill completed, with source gaps reported and independently verified; see README for exact snapshot counts, replay, resume, refresh, and live-check evidence. API/query functions and the agent below describe the remaining reviewed design. Material direction changes remain reviewable.
 
 ## 1. Goal and scope
 
@@ -49,7 +49,7 @@ The agent does not make an HTTP request to its own API. Reusing the query functi
 
 Recommend the **Coinbase Exchange REST API**, specifically `GET /products/BTC-USD/candles`, rather than Coinbase Advanced Trade. Public candle requests require neither credentials nor a paid data subscription. The endpoint supports five-minute, fifteen-minute, and hourly buckets, limits requests to 300 candles, can return buckets preceding the requested start, and warns that history may be incomplete. Its limit applies to a request, not to the total history stored locally. Historical candles are unsuitable for frequent real-time polling. [Coinbase candle reference](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles).
 
-On 2026-10-03, three unauthenticated requests from the development machine returned HTTP 200 and all twelve expected five-minute candles for the sampled UTC windows 00:00-01:00 on 2024-01-01, 2020-01-01, and 2017-01-01. This confirms access to those samples only; it neither establishes the earliest available date nor certifies uninterrupted coverage between them. Older history can be requested explicitly after availability checks. Full backfill and coverage validation remain implementation acceptance work. The endpoint is free to fetch at this scope; local compute/storage and OpenAI usage have their own costs.
+On 2026-10-03, three unauthenticated requests from the development machine returned HTTP 200 and all twelve expected five-minute candles for the sampled UTC windows 00:00-01:00 on 2024-01-01, 2020-01-01, and 2017-01-01. This confirms access to those samples only; it neither establishes the earliest available date nor certifies uninterrupted coverage between them. Older history can be requested explicitly after availability checks. The 2020-to-2026 backfill and independent stored-coverage measurements completed on 2026-10-05; README records the observed gaps and precise range. The endpoint is free to fetch at this scope; local compute/storage and OpenAI usage have their own costs.
 
 Public Exchange limits are enforced per IP and return HTTP 429 on throttling. Use conservative sequential requests, bounded retries, and any applicable retry guidance rather than approaching the published ceiling. [Coinbase rate limits](https://docs.cdp.coinbase.com/exchange/rest-api/rate-limits).
 
@@ -64,7 +64,7 @@ Hyperliquid's archive provides other historical datasets rather than ready-made 
 
 Venue liquidity has not been ranked in this proposal. A liquid perpetual may be the right instrument for derivatives research, but spot versus perpetual is a change of market semantics, not merely a quote-asset substitution. Model traded price separately from mark/index prices and funding; quote denomination, collateral, and settlement assets are distinct. For example, Hyperliquid documents USDC collateral with USDT-denominated contracts for its main perpetual convention. [Hyperliquid contract specifications](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/contract-specifications). Compare liquidity using a defined venue, date, spread/depth, and volume metric if it becomes a selection requirement. Add Hyperliquid funding/open-interest data as a candidate in Milestone 2.
 
-Before implementing the provider parser, verify product metadata, the detailed candle contract, and volume denomination. Sample endpoint access from the development environment has been verified as described above. The proposed normalized volume is **base-asset volume in BTC**; accepting the mapping is a provider-contract check, not an inference from the word `volume`. BTC and USD product identifiers are documented in the [product reference](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-single-product).
+The implemented client verifies product metadata (`BTC-USD`, base BTC, quote USD, margin disabled), reads the documented `time, low, high, open, close, volume` order, and stores **base-asset volume in BTC**. A live check on 2026-10-05 reconciled the 11:55–12:00 UTC candle's **17.88862151** volume exactly to the sum of **1,310** public trades' BTC `size` values. This is empirical evidence for that sample, not a universal historical coverage guarantee or a claim that the candle documentation explicitly names the volume unit. BTC and USD product identifiers are documented in the [product reference](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-single-product).
 
 Do not promise uninterrupted availability or complete history. If the source cannot satisfy the backfill, report the missing coverage and revisit the source decision; do not silently substitute another venue. Public access also does not establish redistribution rights: check relevant provider terms before publishing datasets or a hosted data service. The public repository should contain small synthetic fixtures, not downloaded history.
 
@@ -86,7 +86,7 @@ Store one canonical five-minute series. Derive a coarser candle using the first 
 
 ## 4. Repository structure
 
-The following foundation files exist now. Add remaining directories only when they contain useful implementation, rather than generating empty scaffolds.
+The following foundation and ingestion files exist now. Add remaining directories only when they contain useful implementation, rather than generating empty scaffolds.
 
 ```text
 ai-market-intelligence/
@@ -109,6 +109,7 @@ ai-market-intelligence/
     versions/
   scripts/
     init_local_env.py           # ignored random local credentials, no overwrite
+    check_coinbase_live.py      # opt-in historical samples, no database access
   src/
     market_intelligence/
       __init__.py
@@ -119,13 +120,19 @@ ai-market-intelligence/
         connection.py
         tables.py
         setup.py                # role provisioning and explicit grants
+        candle_store.py         # monthly persistence, audit, and writer lock
+      ingestion/
+        __init__.py
+        models.py               # exact candle validation and UTC windows
+        coinbase.py             # public HTTP contract, paging, and bounded retries
+        service.py              # fetch/validate/commit and explicit resume
   tests/
     conftest.py
     unit/
     integration/
 ```
 
-Remaining Milestone 1 modules will add `db/candle_store.py`, `ingestion/coinbase.py` and `service.py`, `market/schemas.py` and `queries.py`, `api/app.py` and `routes.py`, and `agent/runner.py`, `tools.py`, and `instructions.py`. Add tiny synthetic provider fixtures when ingestion needs them. Use `assets/` only when static resources exist. No generic provider plugin system, base service classes, event bus, dependency-injection framework, or future-component directories are needed. FastAPI's normal dependency functions will suffice for connections and settings.
+Remaining Milestone 1 modules will add `market/schemas.py` and `queries.py`, `api/app.py` and `routes.py`, and `agent/runner.py`, `tools.py`, and `instructions.py`. Provider tests use synthetic wire rows and injected HTTP transports. Use `assets/` only when static resources exist. No generic provider plugin system, base service classes, event bus, dependency-injection framework, or future-component directories are needed. FastAPI's normal dependency functions will suffice for connections and settings.
 
 ## 5. Initial PostgreSQL model
 
@@ -143,7 +150,7 @@ The grain is **one candle per venue market, interval, and UTC bucket start**. A 
 
 Statuses are `running`, `succeeded`, and `failed`, enforced with a check constraint. A run interrupted by a hard process kill may remain `running`; this means incomplete, never successful. Error codes are allowlisted summaries, not arbitrary exception strings. Initial counts are zero. Completed success counts refer to validated distinct candles; `missing_buckets` records absent buckets in the provider result for the requested window. API coverage is independently calculated from stored rows.
 
-The implemented candle provenance foreign key includes `(last_ingestion_run_id, market_id, interval_seconds)` and references a matching unique key on runs. It prevents a valid run for another market/interval from being attached to a candle. The run and candle storage exist; the processing semantics, error-code allowlist, and independent API coverage will be implemented at their respective checkpoints.
+The implemented candle provenance foreign key includes `(last_ingestion_run_id, market_id, interval_seconds)` and references a matching unique key on runs. It prevents a valid run for another market/interval from being attached to a candle. Ingestion implements the processing semantics and a fixed application error-code enum; independent API coverage remains at the query checkpoint. No schema change was needed for ingestion.
 
 Use PostgreSQL foreign keys and check constraints as well as application validation. Candle checks require strictly positive finite prices, finite non-negative volume, `low <= open <= high`, `low <= close <= high`, and `low <= high`. Explicitly reject NaN. For this milestone, enforce canonical `interval_seconds = 300` in candles and runs and exact five-minute alignment of bucket timestamps. Runs require aligned `requested_start < requested_end`; finished runs require a finish time no earlier than their start. Storing a different base resolution needs a reviewed migration; deriving a coarser output resolution does not change the stored grain.
 
@@ -163,7 +170,7 @@ The candle primary-key B-tree supports bounded time scans and latest-candle look
 
 - Store timezone-aware instants in `timestamptz`; use UTC sessions and serialize timestamps as RFC 3339 UTC. Reject naive input timestamps. PostgreSQL retains instants, not the original timezone label.
 - Each stored candle covers `[opened_at, opened_at + five minutes)`. All query and ingestion windows are `[start, end)` with boundaries aligned to the canonical five-minute grid, or to the requested coarser output resolution for a candle-series query. Reject unaligned ranges rather than silently rounding them.
-- Store completed candles only. Proposed eligibility cutoff: `floor_to_five_minutes(now_utc - 60 seconds)`, with each candle's end no later than that cutoff. The one-minute settling allowance reduces boundary races but does not imply provider finality.
+- Store completed candles only. Implemented eligibility cutoff: `floor_to_five_minutes(now_utc - 60 seconds)`, with each candle's end no later than that cutoff. The one-minute settling allowance reduces boundary races but does not imply provider finality.
 - Parse JSON numbers directly into Python `Decimal`, avoiding an intermediate binary float. Validate precision and scale before persistence; reject overflow or excess scale rather than silently round. Serialize money, volume, and calculated decimal metrics as strings in JSON.
 - Missing buckets remain missing. Do not forward-fill prices or manufacture zero-volume candles. Coverage distinguishes absent source observations from a failed HTTP request; the cause of an absent bucket is not known from OHLCV alone.
 - Upsert using the candle primary key. Identical replays leave existing rows and provenance untouched. Changed provider values update the candle, `last_updated_at`, and `last_ingestion_run_id`. `first_ingested_at` remains fixed.
@@ -173,11 +180,11 @@ These five tables normalize repeating source, asset, and market facts while keep
 
 ## 6. Ingestion and failure handling
 
-Use an explicit CLI operation for an aligned historical range. Propose default start `2020-01-01T00:00:00Z` and end at the closed-candle cutoff, with an explicit earlier start allowed after source availability checks. This is a retained-history target, not a rolling retention window. For refreshes, explicitly request a recent overlapping range, initially the last 72 hours. Repairs of older gaps use a specific backfill range; a maximum timestamp is not proof that earlier data is complete. Run one ingestion job at a time locally.
+The implemented CLI accepts an aligned historical range, defaults to start `2020-01-01T00:00:00Z` and end at the closed-candle cutoff, and allows an explicit earlier start after source availability checks. This is a retained-history target, not a rolling retention window. `--refresh` requests the most recent 72 hours. Repairs of older gaps use a specific backfill range; a maximum timestamp is not proof that earlier data is complete. A PostgreSQL session advisory lock permits one cooperating ingestion writer at a time locally, without an open write transaction during HTTP requests.
 
 Split the requested history at UTC calendar-month boundaries, clipping the first and last chunks to the requested range. Each chunk has an independent audit row and transaction; at five minutes even a 31-day chunk has only 8,928 expected rows. A failed later chunk leaves earlier committed months intact. An explicit resume mode skips matching successfully completed chunk ranges, reports any known gaps, and retries unfinished or failed chunks. Ordinary replay/refresh does not skip successful chunks and can apply provider corrections. Never infer completion solely from the largest stored timestamp.
 
-Recommended algorithm:
+Implemented algorithm:
 
 1. Validate settings and market identity. Plan clipped calendar-month chunks. For each chunk that is to be fetched, create and commit a `running` audit row.
 2. Fetch sequential windows of at most 250 five-minute buckets, leaving margin below the provider cap. Send both start and end. Apply client-side `[start, end)` filtering, sort ascending, discard ineligible unfinished candles, and deduplicate. Identical duplicates are harmless; conflicting duplicates within a chunk fail validation.
@@ -185,7 +192,9 @@ Recommended algorithm:
 4. In one short transaction per chunk, upsert validated candles and mark its audit run successful with counts. The chunk's data changes and success status commit together. A success indicates completed processing, not guaranteed full source coverage; missing buckets are reported.
 5. On failure, roll back that chunk's candle changes and mark its audit run failed in a separate transaction where the database is available. Return a nonzero CLI exit status with the failed range and resume instructions. Previously completed chunks remain committed. If audit updates are impossible, report the failure without claiming a successful run.
 
-Retry timeouts, connection failures, HTTP 429, and retryable 5xx responses with exponential backoff and jitter; respect a valid `Retry-After` within the chunk deadline. Proposed limits: five attempts per request window, explicit connect/read timeouts, and a ten-minute chunk deadline. A multi-year command can take much longer overall: show chunk progress and support a configured command deadline/cancellation with safe resume. Do not retry malformed payloads or non-retryable 4xx errors indefinitely. Pin retry behavior in tests with an injected clock/sleeper rather than real waits.
+The client retries timeouts, connection failures, HTTP 429, and 500/502/503/504 with exponential backoff and jitter, respecting a valid `Retry-After` within the chunk deadline. Defaults: five attempts per request window, five-second connect and twenty-second read timeouts (shortened to the remaining request budget), a ten-minute chunk budget, and request starts at least 0.5 seconds apart. A multi-year command can take much longer overall: JSON progress identifies each committed/skipped month; `--max-seconds` optionally bounds the command budget. Deadlines are checked around synchronous requests and between chunks; an in-flight request or database operation must return before its deadline is checked. Malformed payloads and other 4xx responses fail immediately. Retry/deadline tests use injected clocks and sleepers.
+
+Resume uses exact successful audit ranges, including clipped edges. A changed default end replays the final month. Skipped chunks report current stored missing-bucket counts; fetched chunks report source omissions after filtering/deduplication, retaining previously stored observations that a replay omits. Ordinary replay repairs gaps and applies corrections. Both modes retain history. Graceful cancellation marks the active chunk failed where possible; abrupt termination can leave a `running` audit, which resume retries. Operational errors record only allowlisted codes, never credentials or response bodies.
 
 A single transaction for several years would force unnecessary restart work after a late failure. Monthly transactions and existing audit ranges now have a concrete requirement: resumable historical ingestion. They bound memory, write duration, and replay work without adding a scheduler, queue, parent-job schema, or orchestration framework. Per-page checkpoints, a raw landing layer, and concurrent writers remain deferred until they solve a demonstrated problem.
 
@@ -252,13 +261,13 @@ Compose should define `db`, `api`, and explicit one-shot `migrate` and `ingest` 
 
 Use a named PostgreSQL volume; changing an environment variable does not rotate administrator credentials in an existing initialized volume. Bind the API and development database port to localhost. Provide distinct database roles: a local bootstrap/migration owner, a constrained ingestion writer, and an API reader. The agent inherits the API's SELECT-only access. Supply each job only needed variables. Migrations seed source/assets/market; `init-db` provisions roles before migrations and installs explicit grants afterward. Avoid administrator credentials in the API.
 
-The foundation pins Python 3.14.8 and PostgreSQL 18.6 images by registry digest, supports host Python 3.14.x, locks dependencies with uv 0.12.23, and installs only current database dependencies. The runtime `migrate` and `check` jobs share one non-root application image; the check job receives only reader credentials. A separate development image target includes tests and quality tools. PostgreSQL 18 mounts persistent storage at `/var/lib/postgresql`; standalone `compose.test.yaml` uses tmpfs with no host port or development volume. See README for exact commands. Future API/ingestion jobs and their dependencies will be added when implemented.
+The application pins Python 3.14.8 and PostgreSQL 18.6 images by registry digest, supports host Python 3.14.x, and locks dependencies with uv 0.12.23. HTTPX is now installed for synchronous ingestion. Runtime `migrate`, `check`, and `ingest` jobs share the non-root `ai-market-intelligence:local` image; check receives only reader credentials and ingest receives only writer credentials. A separate development image target includes tests and quality tools. PostgreSQL 18 mounts persistent storage at `/var/lib/postgresql`; standalone `compose.test.yaml` uses tmpfs with no host port or development volume. See README for exact commands. The API job and model dependencies will be added at their checkpoints.
 
 Only `.env.example` placeholders are public. Construct connection URLs from settings in memory with the library's URL builder; avoid hand-concatenating passwords or logging URLs. Exclude secret files and local data from Docker build context before creating an image. Validate required configuration at each entry point, allowing market endpoints and ingestion to work without OpenAI configuration; the agent endpoint reports unavailable when its configuration is absent.
 
 ## 10. Milestone 1 acceptance criteria
 
-These are acceptance checks for the complete vertical slice. Foundation checks now pass against actual PostgreSQL: initial migration/reference seed, repeatable setup, migration/schema agreement, downgrade/reapply, precision/UTC, constraints, rollback, and restricted roles. Ingestion, queries, and agent acceptance evidence remains outstanding.
+These are acceptance checks for the complete vertical slice. Foundation checks now pass against actual PostgreSQL: initial migration/reference seed, repeatable setup, migration/schema agreement, downgrade/reapply, precision/UTC, constraints, rollback, and restricted roles. Ingestion checks also pass, including deterministic transaction/replay tests and live backfill, resume, and refresh verification; see README for the exact evidence and source gaps. Query and agent acceptance evidence remains outstanding.
 
 | Criterion | Evidence required before calling Milestone 1 complete |
 | --- | --- |
