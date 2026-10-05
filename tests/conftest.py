@@ -16,7 +16,7 @@ def isolate_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     # Unit tests must not inherit local .env or credentials from the test runner.
     if os.environ.get("RUN_POSTGRES_TESTS") != "1":
         for key in tuple(os.environ):
-            if key.startswith("POSTGRES_"):
+            if key.startswith(("POSTGRES_", "API_")):
                 monkeypatch.delenv(key)
 
 

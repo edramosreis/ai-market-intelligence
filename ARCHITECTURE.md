@@ -1,8 +1,8 @@
 # Milestone 1 architecture
 
-Status: **reviewed; database foundation and ingestion implemented and verified. Milestone 1 remains in progress.**
+Status: **reviewed; foundation, ingestion, and query/API implemented. Milestone 1 remains in progress.**
 
-The user approved Coinbase spot BTC/USD, five-minute candles, an initial backfill from 2020-01-01 with earlier dates configurable, and implementation of the foundation and ingestion. The package, locked tooling, pinned local containers, five-table schema, reference seeds, restricted roles, migrations, provider client, and replayable monthly ingestion CLI are implemented and tested. The initial 2020-to-2026 backfill completed, with source gaps reported and independently verified; see README for exact snapshot counts, replay, resume, refresh, and live-check evidence. API/query functions and the agent below describe the remaining reviewed design. Material direction changes remain reviewable.
+The user approved Coinbase spot BTC/USD, five-minute candles, an initial backfill from 2020-01-01 with earlier dates configurable, and foundation, ingestion, and query/API implementation. The package, tooling, containers, schema, roles, migrations, provider client, replayable ingestion, shared query functions, and local FastAPI endpoints are implemented. The initial backfill completed with independently verified source gaps; README records ingestion and HTTP verification evidence. The agent below remains reviewed design. Material direction changes remain reviewable.
 
 ## 1. Goal and scope
 
@@ -86,7 +86,7 @@ Store one canonical five-minute series. Derive a coarser candle using the first 
 
 ## 4. Repository structure
 
-The following foundation and ingestion files exist now. Add remaining directories only when they contain useful implementation, rather than generating empty scaffolds.
+The following foundation, ingestion, and query/API files exist now. Add remaining directories only when they contain useful implementation, rather than generating empty scaffolds.
 
 ```text
 ai-market-intelligence/
@@ -110,12 +110,14 @@ ai-market-intelligence/
   scripts/
     init_local_env.py           # ignored random local credentials, no overwrite
     check_coinbase_live.py      # opt-in historical samples, no database access
+    check_market_api.py         # opt-in local HTTP checks, no database writes
   src/
     market_intelligence/
       __init__.py
       __main__.py
       config.py
       cli.py                    # standard-library argparse entry point
+      api.py                    # FastAPI transport, lifespan, safe errors, health
       db/
         connection.py
         tables.py
@@ -126,13 +128,17 @@ ai-market-intelligence/
         models.py               # exact candle validation and UTC windows
         coinbase.py             # public HTTP contract, paging, and bounded retries
         service.py              # fetch/validate/commit and explicit resume
+      queries/
+        __init__.py
+        models.py               # evidence schemas, UTC grids, bound cursors
+        service.py              # repeatable read-only snapshots and SQL analytics
   tests/
     conftest.py
     unit/
     integration/
 ```
 
-Remaining Milestone 1 modules will add `market/schemas.py` and `queries.py`, `api/app.py` and `routes.py`, and `agent/runner.py`, `tools.py`, and `instructions.py`. Provider tests use synthetic wire rows and injected HTTP transports. Use `assets/` only when static resources exist. No generic provider plugin system, base service classes, event bus, dependency-injection framework, or future-component directories are needed. FastAPI's normal dependency functions will suffice for connections and settings.
+Remaining Milestone 1 modules will add `agent/runner.py`, `tools.py`, and `instructions.py`. Provider tests use synthetic wire rows and injected transports; query/API tests use guarded PostgreSQL and reader credentials. The current HTTP module keeps routes and lifespan together; split it only when additional routes justify it. Use `assets/` only when static resources exist. No generic provider plugin system, base services, event bus, dependency-injection framework, or future-component directories are needed. FastAPI's normal dependency functions provide the shared query service.
 
 ## 5. Initial PostgreSQL model
 
@@ -200,7 +206,7 @@ A single transaction for several years would force unnecessary restart work afte
 
 ## 7. API and analytical contract
 
-| Proposed endpoint | Behavior |
+| Endpoint | Behavior |
 | --- | --- |
 | `GET /health/live` | Process liveness; no provider calls |
 | `GET /health/ready` | Database reachability and expected schema revision; no OpenAI or Coinbase dependency |
@@ -208,9 +214,9 @@ A single transaction for several years would force unnecessary restart work afte
 | `GET /v1/markets/{market_id}/candles` | Aligned start/end, output resolution of five minutes, fifteen minutes, one hour, or one UTC day; ascending rows, bounded keyset pagination, explicit continuation cursor and constituent coverage |
 | `GET /v1/markets/{market_id}/latest` | Latest stored completed candle, its end timestamp, retrieval time, and staleness |
 | `GET /v1/markets/{market_id}/summary` | Aligned range, deterministic metrics, actual and expected bucket counts, coverage and missing ranges |
-| `POST /v1/agent/query` | A single bounded question; returns answer and server-collected tool evidence |
+| `POST /v1/agent/query` (future agent checkpoint) | A single bounded question; returns answer and server-collected tool evidence |
 
-Allow queries anywhere in retained history. Propose a configurable maximum window of ten years for one summary/series request and candle pages of at most 500 output rows. This request-width guardrail is independent of retained history and can be revisited with measured query behavior. A page includes its window, market, canonical and output intervals, and continuation cursor; page length does not imply complete coverage. Invalid ranges or intervals return validation errors, unknown markets return 404, and database/model unavailability returns a controlled 503. An empty stored window is a successful query with `no_data` and empty evidence, not a zero price or an internal server error.
+Queries may reach anywhere in retained history. `API_MAX_WINDOW_DAYS` defaults to 3653 (roughly ten years) for each summary/series request; pages contain at most 500 output rows (default 200). This request-width guardrail is independent of retention. Dates mean UTC midnight; timestamps require an offset. Windows align to the requested output interval's UTC epoch grid. A page includes its window, market, intervals, whole-window canonical coverage, and validated keyset continuation cursor. The cursor binds its market/window/interval; page length does not imply complete coverage. Invalid ranges/intervals/cursors return 422, unknown markets 404, and database unavailability a sanitized 503. Empty windows return `no_data`. Future windows expose absent coverage; only candles eligible under the ingestion cutoff are returned.
 
 Coarser output bars are grouped on the UTC epoch-aligned grid. Include expected and actual constituent counts. If a group has some but not all required five-minute candles, return an incomplete group with unavailable full-bar OHLCV; a completely absent group remains a gap. Do not disguise missing constituents as a complete derived candle. Summaries aggregate canonical rows directly in the database and send a bounded result to the agent. Limit returned missing-range details to the first 50 ranges with a truncation flag and total missing count; this bounds payload size without implying full coverage.
 
@@ -222,7 +228,7 @@ Summary definitions must be explicit:
 - Expected count = `(end - start) / 300`; actual count = distinct stored five-minute buckets in that window. Return coverage ratio and coalesced missing ranges.
 - If any required bucket is absent, full-window return, high, low, and volume are unavailable. Provide coverage and observed time bounds, not apparently complete metrics. With zero rows use `no_data`; with some missing rows use `incomplete`; with all rows use `complete`.
 
-Proposed latest-data staleness threshold is fifteen minutes measured from the five-minute candle's end to the server's current UTC instant. Report the actual age in every latest-data result. A historical window's completeness and a latest price's freshness are separate properties. Resolve "today" in UTC and "last 24 hours" as the 288 eligible complete five-minute buckets; explain that these differ from a live tick. Ask for clarification when a question implies an unsupported venue, quote asset, or timezone.
+Latest-data staleness defaults to age exceeding 900 seconds (`API_STALE_AFTER_SECONDS`), measured from the candle's end to current server UTC time; report actual age. A historical window's completeness and latest freshness are separate properties. Decimal prices and volume serialize as strings; percentages and coverage ratios use eight decimal places with `ROUND_HALF_EVEN`. Each response uses a reader-role, read-only repeatable transaction; separate pages have separate snapshots and must be restarted if corrections occur during pagination. The database pool is bounded, with five-second pool/connect timeouts and a fifteen-second statement timeout. For future agent tools, resolve "today" in UTC and "last 24 hours" as the 288 eligible complete five-minute buckets; clarify unsupported venue, quote asset, or timezone.
 
 ## 8. OpenAI agent design
 
@@ -261,13 +267,13 @@ Compose should define `db`, `api`, and explicit one-shot `migrate` and `ingest` 
 
 Use a named PostgreSQL volume; changing an environment variable does not rotate administrator credentials in an existing initialized volume. Bind the API and development database port to localhost. Provide distinct database roles: a local bootstrap/migration owner, a constrained ingestion writer, and an API reader. The agent inherits the API's SELECT-only access. Supply each job only needed variables. Migrations seed source/assets/market; `init-db` provisions roles before migrations and installs explicit grants afterward. Avoid administrator credentials in the API.
 
-The application pins Python 3.14.8 and PostgreSQL 18.6 images by registry digest, supports host Python 3.14.x, and locks dependencies with uv 0.12.23. HTTPX is now installed for synchronous ingestion. Runtime `migrate`, `check`, and `ingest` jobs share the non-root `ai-market-intelligence:local` image; check receives only reader credentials and ingest receives only writer credentials. A separate development image target includes tests and quality tools. PostgreSQL 18 mounts persistent storage at `/var/lib/postgresql`; standalone `compose.test.yaml` uses tmpfs with no host port or development volume. See README for exact commands. The API job and model dependencies will be added at their checkpoints.
+The application pins Python 3.14.8 and PostgreSQL 18.6 images by digest, supports host Python 3.14.x, and locks dependencies with uv 0.12.23. HTTPX, FastAPI, and Uvicorn are installed. Runtime `migrate`, `check`, `ingest`, and `api` share the non-root `ai-market-intelligence:local` image. API/check receive only reader credentials; ingest receives only writer credentials. API binds to localhost and has a readiness health check; migrations remain explicit. The development target includes tests and quality tools. PostgreSQL mounts `/var/lib/postgresql`; test Compose uses tmpfs with no host port or development volume. Model dependencies wait for the agent checkpoint.
 
 Only `.env.example` placeholders are public. Construct connection URLs from settings in memory with the library's URL builder; avoid hand-concatenating passwords or logging URLs. Exclude secret files and local data from Docker build context before creating an image. Validate required configuration at each entry point, allowing market endpoints and ingestion to work without OpenAI configuration; the agent endpoint reports unavailable when its configuration is absent.
 
 ## 10. Milestone 1 acceptance criteria
 
-These are acceptance checks for the complete vertical slice. Foundation checks now pass against actual PostgreSQL: initial migration/reference seed, repeatable setup, migration/schema agreement, downgrade/reapply, precision/UTC, constraints, rollback, and restricted roles. Ingestion checks also pass, including deterministic transaction/replay tests and live backfill, resume, and refresh verification; see README for the exact evidence and source gaps. Query and agent acceptance evidence remains outstanding.
+These are acceptance checks for the complete vertical slice. Foundation, ingestion, and query/API checks pass against actual PostgreSQL, including constraints/roles, transactional replay, resumable backfill, hand-calculated analytics, gaps, derived bars, pagination, exact serialization, staleness, and snapshot consistency. README records the live HTTP and ingestion evidence. Agent grounding and full live vertical-slice acceptance remain outstanding.
 
 | Criterion | Evidence required before calling Milestone 1 complete |
 | --- | --- |

@@ -16,6 +16,15 @@ class DatabaseRole(StrEnum):
     READ = "read"
 
 
+class ApiSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="API_", env_file=".env", extra="ignore", hide_input_in_errors=True
+    )
+
+    max_window_days: int = Field(default=3653, ge=1, le=36525)
+    stale_after_seconds: int = Field(default=900, ge=1, le=86400)
+
+
 class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="POSTGRES_",

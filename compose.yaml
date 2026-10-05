@@ -1,5 +1,28 @@
 name: ai-market-intelligence
 services:
+  api:
+    image: ai-market-intelligence:local
+    command: [serve, --host, "0.0.0.0", --port, "8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:?Generate .env first}
+      POSTGRES_READ_USER: ${POSTGRES_READ_USER:?Generate .env first}
+      POSTGRES_READ_PASSWORD: ${POSTGRES_READ_PASSWORD:?Generate .env first}
+      API_MAX_WINDOW_DAYS: ${API_MAX_WINDOW_DAYS:-3653}
+      API_STALE_AFTER_SECONDS: ${API_STALE_AFTER_SECONDS:-900}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)"]
+      interval: 5s
+      timeout: 6s
+      retries: 10
+      start_period: 5s
+
   db:
     image: postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650
     environment:
