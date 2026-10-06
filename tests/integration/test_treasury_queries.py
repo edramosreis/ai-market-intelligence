@@ -130,6 +130,62 @@ def test_half_open_pagination_coverage_describes_whole_window(
         treasury_queries.curve_page(START, date(2024, 2, 2), cursor=first.next_cursor)
 
 
+def test_spread_pages_keep_benchmarks_provenance_missingness_and_window_coverage(
+    treasury_queries: TreasuryQueries,
+    treasury_store: TreasuryStore,
+) -> None:
+    payload = feed(
+        entry("2024-01-02", '<d:BC_2YEAR m:null="true"/>')
+        + entry("2024-01-03", "<d:BC_2YEAR>0</d:BC_2YEAR><d:BC_10YEAR>0.25</d:BC_10YEAR>")
+        + entry("2024-01-04")
+    )
+    with source_with(lambda _: httpx.Response(200, content=payload)) as source:
+        ingest_treasury(source, treasury_store, START, END, now=lambda: NOW)
+    first = treasury_queries.spread_page(START, END, limit=1)
+    missing = first.observations[0]
+    assert missing.observed_on == date(2024, 1, 2) and missing.curve_status == "stored"
+    assert missing.two_year.missing_reason == "source_null"
+    assert missing.ten_year.missing_reason == "field_absent"
+    assert missing.spread.status == "unavailable" and missing.spread.basis_points is None
+    assert missing.two_year.provenance is not None and missing.latest_month_read is not None
+    assert first.coverage.observed_dates == 3 and first.coverage.stored_rates == 42
+    assert first.coverage.available_rates == 2 and first.next_cursor
+    second = treasury_queries.spread_page(START, END, limit=1, cursor=first.next_cursor)
+    zero = second.observations[0]
+    assert zero.two_year.yield_percent == 0 and zero.spread.basis_points == Decimal(25)
+    assert second.coverage == first.coverage and second.next_cursor
+    last = treasury_queries.spread_page(START, END, limit=1, cursor=second.next_cursor)
+    assert last.observations[0].observed_on == date(2024, 1, 4)
+    assert last.observations[0].spread.missing_inputs == ["2Y", "10Y"]
+    assert last.next_cursor is None
+    assert treasury_queries.spread_page(date(2023, 12, 1), START).observations == []
+    with pytest.raises(QueryValidationError, match="cursor"):
+        treasury_queries.spread_page(START, date(2024, 2, 2), cursor=first.next_cursor)
+
+
+def test_twenty_spread_dates_fit_default_agent_output_bound(
+    treasury_queries: TreasuryQueries,
+    treasury_store: TreasuryStore,
+) -> None:
+    payload = feed(
+        "".join(
+            entry(
+                (START + timedelta(days=offset)).isoformat(),
+                "<d:BC_2YEAR>4.25</d:BC_2YEAR><d:BC_10YEAR>4.125</d:BC_10YEAR>",
+            )
+            for offset in range(21)
+        )
+    )
+    with source_with(lambda _: httpx.Response(200, content=payload)) as source:
+        ingest_treasury(source, treasury_store, START, END, now=lambda: NOW)
+    full = treasury_queries.curve_page(START, END)
+    compact = treasury_queries.spread_page(START, END)
+    assert len(compact.observations) == 20 and compact.next_cursor
+    assert len(full.model_dump_json().encode()) > 32000
+    assert len(compact.model_dump_json().encode()) < 32000
+    assert compact.coverage == full.coverage and compact.next_cursor == full.next_cursor
+
+
 def test_partial_stored_curve_exposes_missing_row(
     treasury_queries: TreasuryQueries,
     treasury_store: TreasuryStore,

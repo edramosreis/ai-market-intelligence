@@ -72,7 +72,7 @@ class TreasuryCoverage(Evidence):
     last_observed_on: date | None
 
 
-class TreasuryCurveResult(Evidence):
+class TreasuryDatasetEvidence(Evidence):
     source_code: Literal["us_treasury"] = SOURCE_CODE
     source_name: Literal["US Treasury"] = "US Treasury"
     dataset_code: Literal["daily_nominal_par_yield_curve"] = DATASET_CODE
@@ -81,22 +81,34 @@ class TreasuryCurveResult(Evidence):
         "current_values_with_ingestion_provenance"
     )
     retrieved_at: datetime
+
+
+class TreasuryCurveResult(TreasuryDatasetEvidence):
     curve: TreasuryCurveEvidence
 
 
-class TreasuryCurvePage(Evidence):
-    source_code: Literal["us_treasury"] = SOURCE_CODE
-    source_name: Literal["US Treasury"] = "US Treasury"
-    dataset_code: Literal["daily_nominal_par_yield_curve"] = DATASET_CODE
-    yield_unit: Literal["percent"] = "percent"
-    value_policy: Literal["current_values_with_ingestion_provenance"] = (
-        "current_values_with_ingestion_provenance"
-    )
-    retrieved_at: datetime
+class TreasuryCurvePage(TreasuryDatasetEvidence):
     start: date
     end: date
     coverage: TreasuryCoverage
     curves: list[TreasuryCurveEvidence]
+    next_cursor: str | None
+
+
+class TreasurySpreadObservation(Evidence):
+    observed_on: date
+    curve_status: Literal["stored", "incomplete_stored_curve", "no_data"]
+    two_year: TreasuryRateEvidence
+    ten_year: TreasuryRateEvidence
+    spread: TreasurySpread
+    latest_month_read: TreasuryMonthRead | None
+
+
+class TreasurySpreadPage(TreasuryDatasetEvidence):
+    start: date
+    end: date
+    coverage: TreasuryCoverage
+    observations: list[TreasurySpreadObservation]
     next_cursor: str | None
 
 

@@ -29,6 +29,8 @@ from market_intelligence.treasury.query_models import (
     TreasuryProvenance,
     TreasuryRateEvidence,
     TreasurySpread,
+    TreasurySpreadObservation,
+    TreasurySpreadPage,
     treasury_cursor,
     treasury_cursor_after,
 )
@@ -255,3 +257,30 @@ class TreasuryQueries:
                 ],
                 next_cursor=treasury_cursor(start, end, dates[-1]) if more else None,
             )
+
+    def spread_page(
+        self, start: date, end: date, limit: int = 20, cursor: str | None = None
+    ) -> TreasurySpreadPage:
+        # Project already-calculated evidence from the same read-only snapshot.
+        page = self.curve_page(start, end, limit, cursor)
+        observations = []
+        for curve in page.curves:
+            rates = {rate.tenor: rate for rate in curve.rates}
+            observations.append(
+                TreasurySpreadObservation(
+                    observed_on=curve.observed_on,
+                    curve_status=curve.status,
+                    two_year=rates[TreasuryTenor.TWO_YEARS],
+                    ten_year=rates[TreasuryTenor.TEN_YEARS],
+                    spread=curve.spread,
+                    latest_month_read=curve.latest_month_read,
+                )
+            )
+        return TreasurySpreadPage(
+            retrieved_at=page.retrieved_at,
+            start=page.start,
+            end=page.end,
+            coverage=page.coverage,
+            observations=observations,
+            next_cursor=page.next_cursor,
+        )
