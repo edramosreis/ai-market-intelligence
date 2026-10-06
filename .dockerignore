@@ -9,6 +9,7 @@ credentials
 **/*.p12
 **/*.pfx
 .aws
+.private
 .venv
 .tools
 .cache

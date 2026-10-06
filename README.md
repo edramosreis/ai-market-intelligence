@@ -7,7 +7,6 @@ A market research platform being built to collect historical data, produce repro
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): reviewed design, semantics, trade-offs, and full Milestone 1 acceptance criteria.
-- [ROADMAP.md](ROADMAP.md): seven separate milestones and suggested commit boundaries.
 - [AGENTS.md](AGENTS.md): contributor commands, scope, and conventions.
 
 ## Start the local environment

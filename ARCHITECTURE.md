@@ -12,7 +12,7 @@ Approved data contract: **Coinbase Exchange spot BTC/USD, completed five-minute 
 
 Confirmed requirements: Coinbase spot BTC/USD, five-minute storage, and the initial 2020 start are accepted; the agent must answer questions about 2024 and earlier where source data permits. Earlier starts remain configurable. The initial 90-day dataset was a demo-sized assumption superseded by the historical requirement.
 
-Milestone 1 covers OHLCV, latest stored close, window summaries, ingestion reliability, migrations, local containers, and tests. It does not include live ticks, scheduled orchestration, other assets or providers, trading, forecasting, RAG, streaming infrastructure, MCP, an evaluation platform, or cloud deployment. See [ROADMAP.md](ROADMAP.md) for their separate checkpoints.
+Milestone 1 covers OHLCV, latest stored close, window summaries, ingestion reliability, migrations, local containers, and tests. It does not include live ticks, scheduled orchestration, other assets or providers, trading, forecasting, RAG, streaming infrastructure, MCP, an evaluation platform, or cloud deployment. Future scope is reviewed separately.
 
 ## 2. Runtime boundaries and data flow
 
@@ -92,7 +92,6 @@ The following foundation, ingestion, and query/API files exist now. Add remainin
 ai-market-intelligence/
   README.md
   ARCHITECTURE.md
-  ROADMAP.md
   AGENTS.md
   .gitignore
   .env.example
@@ -296,7 +295,7 @@ Integration tests use an explicitly separate disposable test database/container 
 | --- | --- | --- |
 | Meaning of BTC market data | Accepted Coinbase Exchange spot BTC/USD | A perpetual or aggregate price changes instrument semantics, source/history access, and claim wording; selecting the most liquid market would require defined measurements |
 | Resolution and history | Accepted completed five-minute base candles, coarser derived bars, and retained history from 2020-01-01; minimum historical reach is 2024 | Five minutes adds requests and rows but preserves intrahour moves; multi-year history justifies monthly resumable transactions; earlier starts remain configurable subject to availability |
-| Freshness and execution | Manual bounded backfills/refreshes; explicit staleness | Unattended updates would require scheduling and failure ownership; roadmap puts that decision in Milestone 2 |
+| Freshness and execution | Manual bounded backfills/refreshes; explicit staleness | Unattended updates would require a separate review of scheduling and failure ownership |
 | Corrections and retention | Latest provider values with run provenance, no raw archive | Point-in-time research or auditability would justify immutable raw data and revisions earlier |
 | Package/tooling | Python 3.14, PostgreSQL 18, uv, Core + Alembic, synchronous I/O | Existing preferences or deployment constraints may favor pip/Poetry, direct SQL, another supported runtime, or async |
 | OpenAI model and demo spend | One account-accessible function-capable model, to choose at the agent checkpoint | Agree on acceptable smoke-test cost; model ID remains configuration and model-selection experiments wait |

@@ -14,6 +14,9 @@ credentials/
 *.pfx
 .aws/
 
+# Local planning, excluded from repository publication.
+/.private/
+
 # Python environments, caches, and generated packages.
 .venv/
 .tools/
