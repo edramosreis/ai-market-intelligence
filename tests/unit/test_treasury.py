@@ -85,6 +85,16 @@ def test_empty_month_is_no_observations_not_an_invented_calendar() -> None:
     assert parse_treasury_xml(feed(), MONTH) == []
 
 
+def test_date_only_source_entry_preserves_all_tenors_as_absent() -> None:
+    curves = parse_treasury_xml(feed(entry()), MONTH)
+    assert len(curves) == 1 and curves[0].observed_on == date(2024, 1, 2)
+    assert tuple(rate.tenor for rate in curves[0].rates) == tuple(TreasuryTenor)
+    assert all(
+        rate.yield_percent is None and rate.missing_reason == TreasuryMissingReason.FIELD_ABSENT
+        for rate in curves[0].rates
+    )
+
+
 @pytest.mark.parametrize("year,month", [(1989, 1), (True, 1), (2024, 0), (2024, 13), (2024, True)])
 def test_invalid_months_are_rejected(year: int, month: int) -> None:
     with pytest.raises(ValueError):
@@ -140,7 +150,9 @@ def test_malformed_or_negative_wire_rates(value: str) -> None:
         feed(entry(fields='<d:BC_2YEAR m:null="true">4</d:BC_2YEAR>')),
         feed(entry(fields='<d:BC_2YEAR m:null="unknown">4</d:BC_2YEAR>')),
         feed(entry(fields="<d:BC_2YEAR><x>4</x></d:BC_2YEAR>")),
-        feed(entry()),
+        feed(
+            "<entry><content><m:properties><d:BC_2YEAR>4</d:BC_2YEAR></m:properties></content></entry>"
+        ),
         VALID.replace(b"T00:00:00", b"T00:00:00Z"),
         VALID.replace(b"<m:properties>", b"<properties>").replace(
             b"</m:properties>", b"</properties>"
@@ -159,7 +171,7 @@ def test_malformed_or_negative_wire_rates(value: str) -> None:
         "null-with-value",
         "invalid-null",
         "nested-rate",
-        "no-rates",
+        "missing-date",
         "timestamp-instead-of-date",
         "namespace",
     ],

@@ -92,6 +92,25 @@ def test_missing_benchmarks_are_unavailable_and_zero_is_a_value(
     assert zero.status == "available" and zero.basis_points == Decimal(25)
 
 
+def test_date_only_entry_is_stored_with_no_available_yields_or_spread(
+    treasury_queries: TreasuryQueries,
+    treasury_store: TreasuryStore,
+) -> None:
+    with source_with(lambda _: httpx.Response(200, content=feed(entry()))) as source:
+        report = ingest_treasury(source, treasury_store, START, END, now=lambda: NOW)[0]
+    assert report.received_dates == 1 and report.field_absent == 14
+    curve = treasury_queries.curve(date(2024, 1, 2)).curve
+    assert curve.status == "stored" and curve.stored_rates == 14 and curve.available_rates == 0
+    assert all(
+        rate.yield_percent is None and rate.missing_reason == "field_absent" for rate in curve.rates
+    )
+    assert curve.spread.status == "unavailable" and curve.spread.percentage_points is None
+    page = treasury_queries.curve_page(START, END)
+    assert page.coverage.observed_dates == 1 and page.coverage.available_rates == 0
+    assert page.coverage.field_absent == 14
+    assert page.coverage.publication_calendar_completeness == "not_established"
+
+
 def test_half_open_pagination_coverage_describes_whole_window(
     treasury_queries: TreasuryQueries,
     treasury_store: TreasuryStore,

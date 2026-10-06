@@ -118,8 +118,8 @@ def parse_treasury_xml(payload: bytes, month: TreasuryMonth) -> list[TreasuryCur
             observed_on = date.fromisoformat(raw_date[:10])
             if not month.start <= observed_on < month.end or observed_on in result:
                 raise ValueError("Out-of-month or duplicate source date")
-            if not properties.keys() & FIELDS.keys():
-                raise ValueError("Entry has no supported nominal curve fields")
+            # Historical feeds can include a valid date-only entry. Preserve
+            # that source date with explicit missing fields, never invented rates.
             rates = tuple(_rate(field, tenor, properties) for field, tenor in FIELDS.items())
             # BC_30YEAR is canonical. The legacy display field is not a second
             # maturity and never substitutes for a missing primary rate.

@@ -248,13 +248,15 @@ Try [a January 2024 curve](http://127.0.0.1:8000/v1/treasury/curve?observed_on=2
 
 Local backfill verification on **2026-10-06**: **82 successful months**, **1,691 source dates** from **2020-01-02 through 2026-10-05**, and **23,674 normalized rate rows**: **21,691 available values**, **1,983 absent-field entries**, and no explicit source-null entries in this load. Independent reader SQL confirmed every stored date has fourteen rows and the existing **711,152 Coinbase candles** remain intact. This describes returned source history; publication-calendar completeness remains unestablished.
 
+The extended **1990-01-01 to current-month** load on 2026-10-06 retained **9,197 returned source dates** from **1990-01-02 through 2026-10-05** and **128,758 normalized rows**: **99,712 available yields** and **29,046 absent fields**. All **442 source months** have a successful audit; 443 successful attempts include a current-month replay. Three failed October 2010 attempts remain in the audit history and were resolved by accepting the feed's valid date-only entry with all fourteen yields explicitly `field_absent`. No yields or source dates are invented. Reader checks found fourteen normalized rows for every stored date, preserved the existing historical Treasury values/provenance, and confirmed all 711,152 Coinbase candles remain intact. Publication-calendar completeness remains unestablished. The default ten-year request-width limit is independent of retained history; use bounded date windows to explore the full dataset.
+
 The opt-in HTTP check compares January 1990/2020/2024 to fresh validated source reads, without database writes, credentials, or model calls:
 
 ```powershell
 .venv\Scripts\python.exe scripts/check_treasury_api.py
 ```
 
-On 2026-10-06, each month matched all **294 rates** and **42 benchmark values/spreads** across **three pages**. Existing Coinbase 2020/2024 daily and hourly HTTP checks also passed after the migration. The full **377-test** isolated PostgreSQL suite, formatting, linting, and strict type checks pass. Agent calls remain disabled locally; Treasury tool integration is separate from these HTTP reads.
+On 2026-10-06, January 1990/2020/2024 each matched all **294 rates** and **42 benchmark values/spreads** across **three pages**. Existing Coinbase 2020/2024 daily and hourly HTTP checks also passed after the history extension. The full **388-test** isolated PostgreSQL suite, formatting, linting, and strict type checks pass. Agent calls remain disabled locally; Treasury tool integration is separate from these HTTP reads.
 
 Review the code in this order: `treasury/models.py` and `client.py` for native source semantics; migration `0002`, `db/treasury_store.py`, and `treasury/service.py` for persistence/replay; `treasury/query_models.py` and `queries.py` for evidence/calculations; then the Treasury routes in `api.py` and matching unit/integration tests. Live check scripts are separate from the synthetic deterministic fixtures.
 
