@@ -339,3 +339,59 @@ def test_transport_timeout_past_deadline_reports_deadline_not_retry_exhaustion()
         source = TreasuryClient(http, attempts=1, monotonic=clock.monotonic, sleep=clock.sleep)
         with pytest.raises(TreasuryError, match="deadline_exceeded"):
             source.fetch_month(MONTH, deadline=30)
+
+
+def test_small_stream_chunks_stop_at_deadline_without_consuming_the_rest() -> None:
+    clock = Clock()
+    consumed = 0
+    closed = False
+    calls = 0
+
+    class TrickleStream(httpx.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            nonlocal consumed
+            for _ in range(100):
+                clock.elapsed += 1
+                consumed += 1
+                yield b" "
+            yield VALID
+
+        def close(self) -> None:
+            nonlocal closed
+            closed = True
+
+    def reply(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, stream=TrickleStream())
+
+    with httpx.Client(transport=httpx.MockTransport(reply)) as http:
+        source = TreasuryClient(http, monotonic=clock.monotonic, sleep=clock.sleep)
+        with pytest.raises(TreasuryError, match="deadline_exceeded"):
+            source.fetch_month(MONTH, deadline=30)
+    assert consumed == 30 and clock.elapsed == 30 and closed and calls == 1
+
+
+def test_stream_byte_limit_closes_response_before_consuming_the_rest() -> None:
+    consumed = 0
+    closed = False
+
+    class OversizedStream(httpx.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            nonlocal consumed
+            for _ in range(100):
+                consumed += 1
+                yield b" " * 65536
+
+        def close(self) -> None:
+            nonlocal closed
+            closed = True
+
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=OversizedStream()))
+        ) as http,
+        pytest.raises(TreasuryError, match="invalid_payload"),
+    ):
+        TreasuryClient(http).fetch_month(MONTH, deadline=time.monotonic() + 30)
+    assert consumed == MAX_RESPONSE_BYTES // 65536 + 1 and closed

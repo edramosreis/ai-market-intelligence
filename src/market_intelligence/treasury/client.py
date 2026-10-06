@@ -197,7 +197,9 @@ class TreasuryClient:
                         if response.status_code != 200:
                             raise TreasuryError(TreasuryErrorCode.HTTP_ERROR)
                         body = bytearray()
-                        for chunk in response.iter_bytes(chunk_size=65536):
+                        # Yield each decoded transport chunk so a trickling response
+                        # cannot hide elapsed time inside a fixed-size output buffer.
+                        for chunk in response.iter_bytes():
                             if self.monotonic() >= deadline:
                                 raise TreasuryError(TreasuryErrorCode.DEADLINE_EXCEEDED)
                             if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
