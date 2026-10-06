@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -23,6 +23,41 @@ class ApiSettings(BaseSettings):
 
     max_window_days: int = Field(default=3653, ge=1, le=36525)
     stale_after_seconds: int = Field(default=900, ge=1, le=86400)
+
+
+class AgentSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="AGENT_", env_file=".env", extra="ignore", hide_input_in_errors=True
+    )
+
+    enabled: bool = False
+    api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    model: str | None = Field(default=None, max_length=200, validation_alias="OPENAI_MODEL")
+    deadline_seconds: float = Field(default=60, gt=0, le=60, allow_inf_nan=False)
+    max_model_requests: int = Field(default=4, ge=1, le=4)
+    max_tool_calls: int = Field(default=3, ge=1, le=3)
+    max_question_chars: int = Field(default=4000, ge=1, le=4000)
+    max_output_tokens: int = Field(default=2048, ge=64, le=4096)
+    max_answer_chars: int = Field(default=8000, ge=1, le=16000)
+    max_context_bytes: int = Field(default=128000, ge=1024, le=256000)
+    max_tool_output_bytes: int = Field(default=32000, ge=1024, le=64000)
+    max_response_bytes: int = Field(default=64000, ge=1024, le=128000)
+
+    @field_validator("api_key", "model", mode="before")
+    @classmethod
+    def empty_optional_value(cls, value: object) -> object:
+        return (value.strip() or None) if isinstance(value, str) else value
+
+    @property
+    def configured(self) -> bool:
+        return bool(
+            self.enabled
+            and self.api_key
+            and self.api_key.get_secret_value()
+            and not self.api_key.get_secret_value().startswith("REPLACE_")
+            and self.model
+            and not self.model.startswith("REPLACE_")
+        )
 
 
 class DatabaseSettings(BaseSettings):

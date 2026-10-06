@@ -1,8 +1,8 @@
 # Milestone 1 architecture
 
-Status: **reviewed; foundation, ingestion, and query/API implemented. Milestone 1 remains in progress.**
+Status: **reviewed; foundation, ingestion, query/API, and agent implemented. Live model acceptance remains. Milestone 1 is in progress.**
 
-The user approved Coinbase spot BTC/USD, five-minute candles, an initial backfill from 2020-01-01 with earlier dates configurable, and foundation, ingestion, and query/API implementation. The package, tooling, containers, schema, roles, migrations, provider client, replayable ingestion, shared query functions, and local FastAPI endpoints are implemented. The initial backfill completed with independently verified source gaps; README records ingestion and HTTP verification evidence. The agent below remains reviewed design. Material direction changes remain reviewable.
+The user approved Coinbase spot BTC/USD, five-minute candles, retained history from 2020-01-01 with earlier dates configurable, foundation, ingestion, query/API, and agent development. The local data path and agent loop are implemented. The initial backfill completed with independently verified source gaps; README records ingestion, HTTP, and simulated-agent verification. Model selection/spend and live model inspection remain outstanding. Material direction changes remain reviewable.
 
 ## 1. Goal and scope
 
@@ -86,7 +86,7 @@ Store one canonical five-minute series. Derive a coarser candle using the first 
 
 ## 4. Repository structure
 
-The following foundation, ingestion, and query/API files exist now. Add remaining directories only when they contain useful implementation, rather than generating empty scaffolds.
+The following Milestone 1 files exist now. Add later directories only when they contain useful implementation, rather than generating empty scaffolds.
 
 ```text
 ai-market-intelligence/
@@ -137,7 +137,7 @@ ai-market-intelligence/
     integration/
 ```
 
-Remaining Milestone 1 modules will add `agent/runner.py`, `tools.py`, and `instructions.py`. Provider tests use synthetic wire rows and injected transports; query/API tests use guarded PostgreSQL and reader credentials. The current HTTP module keeps routes and lifespan together; split it only when additional routes justify it. Use `assets/` only when static resources exist. No generic provider plugin system, base services, event bus, dependency-injection framework, or future-component directories are needed. FastAPI's normal dependency functions provide the shared query service.
+Implemented `agent/` modules are `runner.py`, `tools.py`, `models.py`, and `instructions.py`. Provider tests use synthetic wire rows; agent tests use the real SDK with an in-memory HTTP transport. Query/agent integration tests use guarded PostgreSQL and reader credentials. The HTTP module keeps routes and lifespan together; split it when additional complexity warrants it. Use `assets/` only when static resources exist. No generic provider plugin system, base services, event bus, dependency-injection framework, or future-component directories are needed. FastAPI's normal dependency functions provide shared services.
 
 ## 5. Initial PostgreSQL model
 
@@ -229,19 +229,23 @@ Summary definitions must be explicit:
 
 Latest-data staleness defaults to age exceeding 900 seconds (`API_STALE_AFTER_SECONDS`), measured from the candle's end to current server UTC time; report actual age. A historical window's completeness and latest freshness are separate properties. Decimal prices and volume serialize as strings; percentages and coverage ratios use eight decimal places with `ROUND_HALF_EVEN`. Each response uses a reader-role, read-only repeatable transaction; separate pages have separate snapshots and must be restarted if corrections occur during pagination. The database pool is bounded, with five-second pool/connect timeouts and a fifteen-second statement timeout. For future agent tools, resolve "today" in UTC and "last 24 hours" as the 288 eligible complete five-minute buckets; clarify unsupported venue, quote asset, or timezone.
 
-## 8. OpenAI agent design
+## 8. Implemented OpenAI agent
 
 Use the official Python SDK and Responses API with a short, application-owned function-calling loop. The application executes functions requested by the model and returns their outputs using the corresponding call identifiers. Explicit strict function schemas require closed objects and required fields. [OpenAI function-calling guide](https://developers.openai.com/api/docs/guides/function-calling), [official SDK documentation](https://developers.openai.com/api/docs/libraries).
 
 Expose only `get_latest_btc_candle()` and `get_btc_window_summary(start, end)` initially. Tools bind BTC to the configured Coinbase BTC/USD market and canonical five-minute interval; the model cannot select an arbitrary table, SQL expression, or network target. Pydantic validates arguments again on the server, including time boundaries and range limits. The summary can reference historical dates anywhere in the stored range, including 2024 and earlier; it does not send all constituent candles to the model. Arithmetic stays in Python/SQL.
 
-Proposed runner controls: one question per request, at most three tool calls and four model requests, sequential execution, a 60-second wall-clock deadline, and configured input/output size limits. Coordinate SDK timeouts and retry counts with that deadline. Database reads end before waiting for the next model response; never hold a transaction open across LLM calls.
+Runner controls enforce one question per request, at most three tools/four model requests, sequential execution, a 60-second execution budget, and input/output limits. A per-process nonblocking lock admits one agent request; a busy request returns 503. SDK retries are disabled and timeouts use the remaining budget. Deadlines are checked between synchronous operations; an in-flight operation must return before the check, so this is not guaranteed cancellation at 60 seconds. Database reads end before waiting for model responses; integration tests confirm the reader pool has no checked-out connection during those calls.
 
 Every supported market-data answer must have executed a data tool. Reject unknown function names and malformed arguments. Require the first market-data step to request a tool; do not allow a numerical answer without recorded tool evidence. If no data, incomplete coverage, stale data, a tool failure, or a budget limit prevents answering, return that limitation. Tests must cover these branches.
 
 Prompt the model to attribute Coinbase BTC/USD, identify the UTC interval, explain freshness or gaps, and ground every numerical claim in tool outputs. Return the exact server-collected evidence separately from the prose so the result can be inspected. Strict arguments and prompting do not guarantee factual prose; the live demonstration is inspected manually in Milestone 1, while systematic factuality evaluation remains Milestone 6.
 
 Keep the selected function-capable model in `OPENAI_MODEL`; do not hard-code a model or assume account availability. We should choose it during review based on access and willingness to pay for a small smoke test. Model comparisons and routing wait for Milestone 6. Normal automated tests use fake SDK responses and require no API key, network, or spend. Do not persist conversation history or log full questions, responses, authorization headers, or SDK debug payloads.
+
+`AGENT_ENABLED` defaults false. Complete `OPENAI_API_KEY` and `OPENAI_MODEL` configuration is required before enabling calls. The API lifespan owns and closes the optional SDK client; only its Compose service receives model credentials, alongside reader credentials. Market GET endpoints/readiness work without model configuration. Agent POST returns `AgentResult` with server-collected evidence, counts, model, and limitations. Model/database failures map to 503; invalid questions to 422 and bodies over 64 KiB to 413. Empty/gapped/stale results stop with server-written limitations and evidence. Oversized evidence is omitted to preserve output bounds. See README and `.env.example` for defaults and activation.
+
+Stateless requests set `store=false`; all returned reasoning/function items and matching `function_call_output` items are relayed in memory. This follows the [OpenAI stateless reasoning guidance](https://developers.openai.com/api/docs/guides/reasoning). The complete 237-test PostgreSQL suite passes; the simulated replies test execution and evidence, not the selected live model's prose. Live model acceptance remains outstanding.
 
 ## 9. Dependencies and local development
 
@@ -266,13 +270,13 @@ Compose should define `db`, `api`, and explicit one-shot `migrate` and `ingest` 
 
 Use a named PostgreSQL volume; changing an environment variable does not rotate administrator credentials in an existing initialized volume. Bind the API and development database port to localhost. Provide distinct database roles: a local bootstrap/migration owner, a constrained ingestion writer, and an API reader. The agent inherits the API's SELECT-only access. Supply each job only needed variables. Migrations seed source/assets/market; `init-db` provisions roles before migrations and installs explicit grants afterward. Avoid administrator credentials in the API.
 
-The application pins Python 3.14.8 and PostgreSQL 18.6 images by digest, supports host Python 3.14.x, and locks dependencies with uv 0.12.23. HTTPX, FastAPI, and Uvicorn are installed. Runtime `migrate`, `check`, `ingest`, and `api` share the non-root `ai-market-intelligence:local` image. API/check receive only reader credentials; ingest receives only writer credentials. API binds to localhost and has a readiness health check; migrations remain explicit. The development target includes tests and quality tools. PostgreSQL mounts `/var/lib/postgresql`; test Compose uses tmpfs with no host port or development volume. Model dependencies wait for the agent checkpoint.
+The application pins Python 3.14.8 and PostgreSQL 18.6 images by digest, supports host Python 3.14.x, and locks dependencies with uv 0.12.23. HTTPX, FastAPI, Uvicorn, and OpenAI SDK 2.54.0 are installed. Runtime `migrate`, `check`, `ingest`, and `api` share the non-root `ai-market-intelligence:local` image. API/check receive reader database credentials; ingest receives writer credentials. Only the API receives optional model configuration. API binds to localhost and has a readiness health check; migrations remain explicit. The development target includes tests and quality tools. PostgreSQL mounts `/var/lib/postgresql`; test Compose uses tmpfs with no host port or development volume.
 
 Only `.env.example` placeholders are public. Construct connection URLs from settings in memory with the library's URL builder; avoid hand-concatenating passwords or logging URLs. Exclude secret files and local data from Docker build context before creating an image. Validate required configuration at each entry point, allowing market endpoints and ingestion to work without OpenAI configuration; the agent endpoint reports unavailable when its configuration is absent.
 
 ## 10. Milestone 1 acceptance criteria
 
-These are acceptance checks for the complete vertical slice. Foundation, ingestion, and query/API checks pass against actual PostgreSQL, including constraints/roles, transactional replay, resumable backfill, hand-calculated analytics, gaps, derived bars, pagination, exact serialization, staleness, and snapshot consistency. README records the live HTTP and ingestion evidence. Agent grounding and full live vertical-slice acceptance remain outstanding.
+These are acceptance checks for the complete vertical slice. Foundation, ingestion, query/API, and simulated agent execution checks pass against actual PostgreSQL, including constraints/roles, transactional replay, resumable backfill, hand-calculated analytics, gaps, derived bars, pagination, serialization, staleness, snapshots, and tool/budget boundaries. README records verification evidence. Selecting the model/spend and inspecting the full live vertical slice remain outstanding.
 
 | Criterion | Evidence required before calling Milestone 1 complete |
 | --- | --- |

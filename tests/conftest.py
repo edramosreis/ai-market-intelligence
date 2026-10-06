@@ -14,6 +14,9 @@ from market_intelligence.db.connection import create_db_engine
 @pytest.fixture(autouse=True)
 def isolate_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     # Unit tests must not inherit local .env or credentials from the test runner.
+    for key in tuple(os.environ):
+        if key.startswith(("OPENAI_", "AGENT_")):
+            monkeypatch.delenv(key)
     if os.environ.get("RUN_POSTGRES_TESTS") != "1":
         for key in tuple(os.environ):
             if key.startswith(("POSTGRES_", "API_")):

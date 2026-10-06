@@ -341,7 +341,9 @@ class MarketQueries:
                     sa.select(candles.c.open).where(predicate, candles.c.opened_at == window.start)
                 ).scalar_one()
                 closing = conn.execute(
-                    sa.select(candles.c.close).where(predicate, candles.c.opened_at == window.end - INTERVAL)
+                    sa.select(candles.c.close).where(
+                        predicate, candles.c.opened_at == window.end - INTERVAL
+                    )
                 ).scalar_one()
                 with localcontext() as context:
                     context.prec = 80
