@@ -164,7 +164,8 @@ def report_treasury_progress(report: TreasuryReport) -> None:
 
 
 def run_treasury_ingestion(args: argparse.Namespace, settings: DatabaseSettings) -> None:
-    current = TreasuryMonth(utc_now().year, utc_now().month)
+    today = utc_now().date()
+    current = TreasuryMonth(today.year, today.month)
     end = date.fromisoformat(args.end) if args.end else current.end
     previous = (
         date(current.year - 1, 12, 1)
@@ -174,7 +175,7 @@ def run_treasury_ingestion(args: argparse.Namespace, settings: DatabaseSettings)
     start = (
         previous
         if args.refresh
-        else (date.fromisoformat(args.start) if args.start else date(2020, 1, 1))
+        else (date.fromisoformat(args.start) if args.start else date(1990, 1, 1))
     )
     treasury_months(start, end)  # Reject partial months before opening a database connection.
     if not 0.1 <= args.request_interval <= 60:
@@ -216,6 +217,16 @@ def run_treasury_ingestion(args: argparse.Namespace, settings: DatabaseSettings)
         engine.dispose()
 
 
+def treasury_recovery(error: TreasuryIngestionError) -> str:
+    if error.month is None:
+        return "Rerun the original command; earlier committed months are retained."
+    return (
+        f"Run ingest-treasury --start {error.month.start.isoformat()} "
+        f"--end {error.month.end.isoformat()} to retry this month without --resume; "
+        "then rerun the original command. Earlier committed months are retained."
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Market intelligence database and ingestion jobs")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -250,7 +261,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "ingest-treasury", help="Backfill monthly nominal par yield curves"
     )
     treasury_start = treasury.add_mutually_exclusive_group()
-    treasury_start.add_argument("--start", help="First-of-month DATE; defaults to 2020-01-01")
+    treasury_start.add_argument("--start", help="First-of-month DATE; defaults to 1990-01-01")
     treasury_start.add_argument(
         "--refresh", action="store_true", help="Replay previous/current months"
     )
@@ -268,6 +279,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     treasury.add_argument("--max-seconds", type=float, help="Optional overall command deadline")
     args = parser.parse_args(argv)
+    if args.command == "ingest-treasury" and args.refresh and args.resume:
+        parser.error("Treasury --refresh cannot be combined with --resume")
     try:
         settings = DatabaseSettings()  # type: ignore[call-arg]
         if args.command == "init-db":
@@ -313,7 +326,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "run_id": str(treasury_error.run_id) if treasury_error.run_id else None,
                     "month": treasury_error.month.provider_month if treasury_error.month else None,
                     "audit_recorded": treasury_error.audit_recorded,
-                    "recovery": "Rerun the same range with --resume; earlier months are retained.",
+                    "recovery": treasury_recovery(treasury_error),
                 }
             ),
             file=sys.stderr,

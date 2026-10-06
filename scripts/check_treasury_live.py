@@ -13,7 +13,7 @@ def main() -> int:
     try:
         with httpx.Client(timeout=20, trust_env=False, follow_redirects=False) as http:
             source = TreasuryClient(http)
-            for month in (TreasuryMonth(2020, 1), TreasuryMonth(2024, 1)):
+            for month in (TreasuryMonth(1990, 1), TreasuryMonth(2020, 1), TreasuryMonth(2024, 1)):
                 curves = source.fetch_month(month, deadline=time.monotonic() + 60)
                 if not curves:
                     raise ValueError("Sample month is unavailable")

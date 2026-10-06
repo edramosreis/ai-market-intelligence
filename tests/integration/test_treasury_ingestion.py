@@ -1,9 +1,11 @@
 """Real monthly transactions/roles with synthetic Treasury XML and injected HTTP failures."""
 
+import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from typing import Any
 
 import httpx
@@ -11,6 +13,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy import Engine
 
+from market_intelligence import cli
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.candle_store import CandleStore
 from market_intelligence.db.tables import treasury_ingestion_runs as runs
@@ -299,3 +302,47 @@ def test_deadline_during_http_retains_failed_audit(
         )
     assert caught.value.code == TreasuryErrorCode.DEADLINE_EXCEEDED and caught.value.audit_recorded
     assert snapshot(admin_engine) == []
+
+
+def test_cli_recovery_retries_failed_replay_despite_an_older_success(
+    treasury_store: TreasuryStore,
+    admin_engine: Engine,
+    database_settings: DatabaseSettings,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with source_with() as source:
+        ingest_treasury(source, treasury_store, START, END, now=lambda: NOW)
+    finished = NOW + timedelta(hours=1)
+    monkeypatch.setattr(cli, "utc_now", lambda: finished)
+    monkeypatch.setattr(cli, "DatabaseSettings", lambda: database_settings)
+    monkeypatch.setattr(cli, "ingest_treasury", partial(ingest_treasury, now=lambda: finished))
+    arguments = ["ingest-treasury", "--start", START.isoformat(), "--end", END.isoformat()]
+    with source_with(lambda _: httpx.Response(400)) as source:
+        monkeypatch.setattr(cli, "TreasuryClient", lambda _http, **_options: source)
+        assert cli.main(arguments) == 1
+    failure = json.loads(capsys.readouterr().err)
+    assert failure["code"] == "http_error" and failure["audit_recorded"]
+    assert "--start 2024-01-01 --end 2024-02-01" in failure["recovery"]
+    assert "without --resume" in failure["recovery"]
+
+    finished += timedelta(hours=1)
+    fetched = []
+
+    def corrected(request: httpx.Request) -> httpx.Response:
+        fetched.append(request.url.params["field_tdr_date_value_month"])
+        return httpx.Response(200, content=wire(request).replace(b"4.25", b"4.50"))
+
+    with source_with(corrected) as source:
+        monkeypatch.setattr(cli, "TreasuryClient", lambda _http, **_options: source)
+        assert cli.main(arguments) == 0
+    completed = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert fetched == ["202401"] and completed["updated"] == 2
+    assert {row["yield_percent"] for row in snapshot(admin_engine) if row["tenor"] == "2Y"} == {
+        Decimal("4.50")
+    }
+    assert sorted(row["status"] for row in snapshot(admin_engine, runs)) == [
+        "failed",
+        "succeeded",
+        "succeeded",
+    ]

@@ -28,7 +28,7 @@ def main() -> int:
         ):
             api.get("/health/ready").raise_for_status()
             source = TreasuryClient(http)
-            for month in (TreasuryMonth(2020, 1), TreasuryMonth(2024, 1)):
+            for month in (TreasuryMonth(1990, 1), TreasuryMonth(2020, 1), TreasuryMonth(2024, 1)):
                 observations = source.fetch_month(month, deadline=time.monotonic() + 60)
                 expected = {curve.observed_on: curve for curve in observations}
                 seen = set()

@@ -213,9 +213,9 @@ Run after the existing locked dependency installation:
 .venv\Scripts\python.exe scripts/check_treasury_live.py
 ```
 
-This opt-in check fetches January 2020 and January 2024, validates the two-year and ten-year rates, and prints aggregate counts. It reads no local credentials and writes no database or downloaded fixture files. The standard application/test builds include the new package; the development image includes the sample script.
+This opt-in check fetches January 1990, January 2020, and January 2024, validates the two-year and ten-year rates, and prints aggregate counts. It reads no local credentials and writes no database or downloaded fixture files. The standard application/test builds include the new package; the development image includes the sample script.
 
-Verification on **2026-10-06**: both sample months returned **21 source dates and 42 available benchmark yields** through the actual client. Fifty provider unit tests cover the boundary. Parsing rejects malformed/oversized XML, DTD/entities, duplicate/out-of-month dates, unexpected fields, and monthly pagination; HTTP behavior includes bounded streaming reads, sanitized errors, pacing, retries, and deadlines.
+Initial verification on **2026-10-06**: the 2020/2024 sample months each returned **21 source dates and 42 available benchmark yields** through the actual client. Provider unit tests cover the boundary. Parsing rejects malformed/oversized XML, DTD/entities, duplicate/out-of-month dates, unexpected fields, and monthly pagination; HTTP behavior includes bounded streaming reads, sanitized errors, pacing, retries, and deadlines checked as each decoded transport chunk arrives. An in-flight synchronous read must still return before its deadline is checked.
 
 These opt-in source checks perform no writes. Revision `0002` adds separate Treasury fact/audit tables and current-value correction semantics, preserving first/latest materialization provenance. PostgreSQL tests verify constraints, grants, migration compatibility, replay/corrections, omitted-date retention, atomic rollback, independent locking, resume, pagination, spreads, and concurrent-correction snapshots. Returned source dates do not establish a complete trading/publication calendar; weekends, holidays, and unavailable tenors must not be filled with fabricated observations.
 
@@ -227,9 +227,9 @@ docker compose run --rm ingest ingest-treasury --resume
 docker compose run --rm ingest ingest-treasury --refresh
 ```
 
-Bounds are first-of-month dates with an exclusive end. The default history begins 2020-01-01, configurable back to 1990; the default end includes the current source month. Host execution uses `.venv\Scripts\python.exe -m market_intelligence ingest-treasury` with the same flags after locked dependency installation and database startup. No new service or dependency is needed.
+Bounds are first-of-month dates with an exclusive end. Treasury's default history begins **1990-01-01**, with later starts configurable; the default end includes the current source month. Running `--resume` extends an existing 2020 backfill into the earlier history while reusing successful historical monthly reads. Coinbase BTC/USD continues to start in 2020 by default. Host execution uses `.venv\Scripts\python.exe -m market_intelligence ingest-treasury` with the same flags after locked dependency installation and database startup. No new service or dependency is needed.
 
-Resume reuses validated historical feed reads only when stored dates still have all fourteen normalized tenor rows; it always refetches the current month. It does not certify calendar completeness or fetch later historical revisions. Refresh replays the previous/current months. Replay an older month without `--resume` to check corrections. Each source month commits its facts and success audit together; failures retain earlier months and record a sanitized failed audit. Unchanged facts preserve provenance. Dates omitted by a later response remain stored and are counted as `retained_dates`, without being marked freshly verified. `--month-seconds` and `--max-seconds` bound fetch/validation work, and `--request-interval` controls sequential request pacing. Scheduling remains manual.
+Resume reuses validated historical feed reads only when stored dates still have all fourteen normalized tenor rows; it always refetches the current month. It does not certify calendar completeness or fetch later historical revisions. Refresh replays the previous/current months; combining `--refresh --resume` is rejected. Replay an older month without `--resume` to check corrections. If a replay fails, retry that exact month without `--resume`, then rerun the original command; an older success must not skip the intended correction fetch. Each source month commits its facts and success audit together; failures retain earlier months and record a sanitized failed audit. Unchanged facts preserve provenance. Dates omitted by a later response remain stored and are counted as `retained_dates`, without being marked freshly verified. `--month-seconds` and `--max-seconds` bound fetch/validation work, and `--request-interval` controls sequential request pacing. Scheduling remains manual.
 
 ## Explore stored Treasury curves
 
@@ -248,7 +248,7 @@ Try [a January 2024 curve](http://127.0.0.1:8000/v1/treasury/curve?observed_on=2
 
 Local backfill verification on **2026-10-06**: **82 successful months**, **1,691 source dates** from **2020-01-02 through 2026-10-05**, and **23,674 normalized rate rows**: **21,691 available values**, **1,983 absent-field entries**, and no explicit source-null entries in this load. Independent reader SQL confirmed every stored date has fourteen rows and the existing **711,152 Coinbase candles** remain intact. This describes returned source history; publication-calendar completeness remains unestablished.
 
-The opt-in HTTP check compares both sample months to fresh validated source reads, without database writes, credentials, or model calls:
+The opt-in HTTP check compares January 1990/2020/2024 to fresh validated source reads, without database writes, credentials, or model calls:
 
 ```powershell
 .venv\Scripts\python.exe scripts/check_treasury_api.py

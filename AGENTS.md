@@ -29,10 +29,10 @@ Run from the repository root; full installation instructions are in `README.md`.
 - `docker compose run --rm ingest ingest --refresh`: replay the most recent 72 hours.
 - `.venv\Scripts\python.exe -m market_intelligence ingest --start 2024-01-01 --end 2024-01-02`: equivalent host job after dependency installation/database startup.
 - `.venv\Scripts\python.exe scripts/check_coinbase_live.py`: opt-in public API samples from 2020/2024; no database access.
-- `.venv\Scripts\python.exe scripts/check_treasury_live.py`: opt-in public Treasury monthly samples from 2020/2024; no keys, database access, or model calls.
-- `.venv\Scripts\python.exe scripts/check_treasury_api.py`: opt-in stored HTTP pagination/rates/spreads versus fresh 2020/2024 samples; requires API/backfill, performs no writes or model calls.
+- `.venv\Scripts\python.exe scripts/check_treasury_live.py`: opt-in public Treasury monthly samples from 1990/2020/2024; no keys, database access, or model calls.
+- `.venv\Scripts\python.exe scripts/check_treasury_api.py`: opt-in stored HTTP pagination/rates/spreads versus fresh 1990/2020/2024 samples; requires API/backfill, performs no writes or model calls.
 - `docker compose run --rm ingest ingest-treasury --start 2024-01-01 --end 2024-02-01`: load/replay one Treasury month.
-- `docker compose run --rm ingest ingest-treasury --resume`: backfill from 2020; reuse successful historical feed reads and refetch the current month.
+- `docker compose run --rm ingest ingest-treasury --resume`: backfill from 1990; reuse successful historical feed reads and refetch the current month.
 - `docker compose run --rm ingest ingest-treasury --refresh`: replay the previous and current source months.
 - `.venv\Scripts\python.exe -m market_intelligence ingest-treasury --start 2024-01-01 --end 2024-02-01`: equivalent host job.
 - `docker compose -f compose.test.yaml up --build --abort-on-container-exit --exit-code-from tests`: isolated full suite.
@@ -66,7 +66,7 @@ Queries use actual reader credentials, read-only repeatable transactions, UTC ep
 
 Treasury observations use source dates and nominal yield percentages, not crypto candle timestamps. Preserve source-null versus absent-tenor reasons and actual zero rates. Reject malformed/oversized XML, DTD/entities, duplicate/out-of-month dates, unsupported fields, and truncated monthly feeds. Keep retries, pacing, streaming reads, and deadlines injectable. Source samples establish only returned dates; do not invent holiday observations or claim publication-calendar completeness from a successful fetch.
 
-Treasury monthly persistence commits facts and successful audit counts atomically. Preserve unchanged provenance; changed values/reasons replace current facts. Retain/report dates omitted by a refresh, without claiming fresh verification. Resume verifies normalized stored tenor counts before reusing historical audits; the current month is always fetched. Reader/writer grants and independent advisory locks are tested against PostgreSQL. Historical corrections require explicit replay without `--resume`.
+Treasury monthly persistence commits facts and successful audit counts atomically. Preserve unchanged provenance; changed values/reasons replace current facts. Retain/report dates omitted by a refresh, without claiming fresh verification. Resume verifies normalized stored tenor counts before reusing historical audits; the current month is always fetched. Reader/writer grants and independent advisory locks are tested against PostgreSQL. Historical corrections and retries of failed historical replays require explicit replay without `--resume`. Reject combined Treasury `--refresh --resume` before configuration/database access.
 
 Treasury queries use reader-role read-only repeatable snapshots, half-open date windows, date-keyset cursors bound to the dataset/window, maturity order, and Decimal JSON strings. A curve includes all fourteen normalized tenors with explicit source-null/field-absent/not-stored reasons. Require both same-date benchmark yields for 10Y-minus-2Y spreads, preserving signed percentage points and basis points. Coverage counts stored source dates without an invented calendar. Monthly fetch audit time is not an observation release time or a per-row last-verification timestamp. Verify concurrent-correction consistency and sanitized HTTP failures.
 
