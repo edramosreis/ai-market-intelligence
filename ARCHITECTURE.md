@@ -2,7 +2,7 @@
 
 Status: **reviewed; Milestone 1's local vertical slice is implemented and verified, including manually inspected live-agent answers.**
 
-The Treasury provider boundary and dedicated schema are implemented. Their native data contract and limitations are described in section 12; ingestion and query integration are in development.
+The Treasury provider boundary, dedicated schema, and monthly ingestion are implemented. Their native data contract and limitations are described in section 12; query integration is in development.
 
 The reviewed contract uses Coinbase spot BTC/USD, five-minute candles, and retained history from 2020-01-01 with earlier dates configurable. The local data path and agent loop are implemented. The initial backfill completed with independently verified source gaps; README records ingestion, HTTP, deterministic tests, and separately inspected live-agent verification. Material direction changes remain reviewable.
 
@@ -322,4 +322,6 @@ Revision `0002` adds `treasury_yields` and `treasury_ingestion_runs`, without ch
 
 The selected correction policy replaces current values while preserving first ingestion and latest material-change provenance. It does not retain overwritten values or establish historical point-in-time knowledge. Unchanged facts keep their original provenance. An omitted source date is retained and reported rather than silently deleted. A successful feed read describes returned source dates; it does not establish that every expected business session was published. Do not reuse the Coinbase five-minute grid, infer missing holidays, forward-fill yields, or claim retrospective point-in-time availability from retrieval timestamps.
 
-The schema is verified against isolated PostgreSQL, including upgrade preservation of existing candles. The ingestion command and read-only Treasury endpoints are the next integration slice.
+The schema and monthly ingestion are verified against isolated PostgreSQL, including upgrade preservation of existing candles. `ingest-treasury` runs manually with writer credentials, from 2020 by default or earlier configurable month-aligned dates from 1990. Each month has an independently committed running audit, bounded HTTP fetch/validation without an open write transaction, and an atomic fact/success commit. Failure rolls back that month's facts, records a sanitized failed audit separately, and leaves earlier months intact. A separate advisory lock excludes simultaneous Treasury jobs while allowing Coinbase ingestion.
+
+Resume can reuse a successful historical feed read after verifying normalized stored tenor counts. This means the feed was read successfully, not that a publication calendar is complete or that subsequent corrections have been fetched. The current month is always replayed; refresh replays the previous/current months. Force a historical correction refresh by requesting that month without `--resume`. No scheduling is enabled. Read-only Treasury endpoints are the next integration slice.

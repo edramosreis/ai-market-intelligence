@@ -4,7 +4,7 @@ A market research platform being built to collect historical data, produce repro
 
 **Current state: Milestone 1's local vertical slice is implemented and verified.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only API serves stored candles, derived bars, coverage, latest observations, and summaries. Deterministic agent tests execute those same queries through simulated model responses; a separate live demonstration with `gpt-6-luna` passed manual evidence and answer inspection.
 
-The Treasury provider client and dedicated database schema are also implemented: validated monthly reads of daily nominal par yield curves with native dates, exact percentage yields, and explicit missing values. Ingestion and Treasury API/agent queries are still in development.
+Treasury monthly ingestion is also implemented: validated daily nominal par yield curves with native dates, exact percentage yields, explicit missing values, and current-value provenance. Treasury API/agent queries are still in development.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -217,7 +217,19 @@ This opt-in check fetches January 2020 and January 2024, validates the two-year 
 
 Verification on **2026-10-06**: both sample months returned **21 source dates and 42 available benchmark yields** through the actual client. **50 new provider unit tests passed; all 197 unit tests passed** with the 90 PostgreSQL integration tests deselected. Formatting, linting, and strict type checks pass. Parsing rejects malformed/oversized XML, DTD/entities, duplicate/out-of-month dates, unexpected fields, and monthly pagination; HTTP behavior includes bounded streaming reads, sanitized errors, pacing, retries, and deadlines.
 
-These are source reads, with no Treasury data loaded or exposed through the API yet. Revision `0002` adds separate Treasury fact/audit tables and current-value correction semantics, preserving first/latest materialization provenance. Its constraints, least-privilege grants, and upgrade preservation of candle data pass the complete **334-test** isolated PostgreSQL suite. Returned source dates do not establish a complete trading/publication calendar; weekends, holidays, and unavailable tenors must not be filled with fabricated observations.
+These opt-in source checks perform no writes. Revision `0002` adds separate Treasury fact/audit tables and current-value correction semantics, preserving first/latest materialization provenance. The full **354-test** isolated PostgreSQL suite verifies constraints, grants, migration compatibility, replay/corrections, omitted-date retention, atomic rollback, independent locking, and resume. Returned source dates do not establish a complete trading/publication calendar; weekends, holidays, and unavailable tenors must not be filled with fabricated observations.
+
+After building the runtime image and running migrations as documented above, load Treasury data with the existing writer-only job:
+
+```powershell
+docker compose run --rm ingest ingest-treasury --start 2024-01-01 --end 2024-02-01
+docker compose run --rm ingest ingest-treasury --resume
+docker compose run --rm ingest ingest-treasury --refresh
+```
+
+Bounds are first-of-month dates with an exclusive end. The default history begins 2020-01-01, configurable back to 1990; the default end includes the current source month. Host execution uses `.venv\Scripts\python.exe -m market_intelligence ingest-treasury` with the same flags after locked dependency installation and database startup. No new service or dependency is needed.
+
+Resume reuses validated historical feed reads only when stored dates still have all fourteen normalized tenor rows; it always refetches the current month. It does not certify calendar completeness or fetch later historical revisions. Refresh replays the previous/current months. Replay an older month without `--resume` to check corrections. Each source month commits its facts and success audit together; failures retain earlier months and record a sanitized failed audit. Unchanged facts preserve provenance. Dates omitted by a later response remain stored and are counted as `retained_dates`, without being marked freshly verified. `--month-seconds` and `--max-seconds` bound fetch/validation work, and `--request-interval` controls sequential request pacing. Scheduling remains manual.
 
 ## Run tests
 
@@ -288,4 +300,4 @@ Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bea
 
 ## Next checkpoint
 
-The Treasury source-date and current-value/provenance contracts are selected, and the schema is verified. Connect the validated client to monthly transactional ingestion and shared read-only queries next.
+Treasury source dates, current-value/provenance semantics, and monthly persistence are verified. Add shared read-only curve/range/spread queries next.

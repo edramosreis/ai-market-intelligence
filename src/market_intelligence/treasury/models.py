@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
+from uuid import UUID
+
+SOURCE_CODE = "us_treasury"
+DATASET_CODE = "daily_nominal_par_yield_curve"
 
 
 class TreasuryErrorCode(StrEnum):
@@ -11,6 +15,10 @@ class TreasuryErrorCode(StrEnum):
     HTTP_ERROR = "http_error"
     RETRY_EXHAUSTED = "retry_exhausted"
     DEADLINE_EXCEEDED = "deadline_exceeded"
+    DATABASE_ERROR = "database_error"
+    CONCURRENT_JOB = "concurrent_job"
+    INTERRUPTED = "interrupted"
+    INTERNAL_ERROR = "internal_error"
 
 
 class TreasuryError(Exception):
@@ -63,6 +71,48 @@ class TreasuryMonth:
     @property
     def provider_month(self) -> str:
         return f"{self.year:04d}{self.month:02d}"
+
+
+def treasury_months(start: date, end: date) -> list[TreasuryMonth]:
+    if (
+        type(start) is not date
+        or type(end) is not date
+        or start.day != 1
+        or end.day != 1
+        or start >= end
+        or start < date(1990, 1, 1)
+        or end > date(9999, 1, 1)
+    ):
+        raise ValueError("Use month-aligned DATE bounds from 1990 with start < end")
+    result = []
+    while start < end:
+        month = TreasuryMonth(start.year, start.month)
+        result.append(month)
+        start = month.end
+    return result
+
+
+class TreasuryIngestionError(TreasuryError):
+    def __init__(self, code: TreasuryErrorCode) -> None:
+        super().__init__(code)
+        self.month: TreasuryMonth | None = None
+        self.run_id: UUID | None = None
+        self.audit_recorded = False
+
+
+@dataclass(frozen=True)
+class TreasuryReport:
+    run_id: UUID
+    month: TreasuryMonth
+    received_dates: int
+    received_rates: int
+    inserted: int
+    updated: int
+    unchanged: int
+    source_null: int
+    field_absent: int
+    retained_dates: int
+    skipped: bool = False
 
 
 @dataclass(frozen=True)
