@@ -2,12 +2,11 @@
 
 A market research platform being built to collect historical data, produce reproducible analysis, and answer questions grounded in stored market observations.
 
-**Current state: Milestone 1 foundation, Coinbase ingestion, and historical query/API implemented and verified.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only HTTP API serves stored candles, derived bars, coverage, latest observations, and deterministic summaries. The AI agent is the remaining Milestone 1 checkpoint.
+**Current state: Milestone 1's local vertical slice is implemented and verified.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only API serves stored candles, derived bars, coverage, latest observations, and summaries. Deterministic agent tests execute those same queries through simulated model responses; a separate live demonstration with `gpt-6-luna` passed manual evidence and answer inspection.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): reviewed design, semantics, trade-offs, and full Milestone 1 acceptance criteria.
-- [ROADMAP.md](ROADMAP.md): seven separate milestones and suggested commit boundaries.
 - [AGENTS.md](AGENTS.md): contributor commands, scope, and conventions.
 
 ## Start the local environment
@@ -64,7 +63,7 @@ PostgreSQL enforces identity, unique candle grain, five-minute alignment, `numer
 | Ingestion | SELECT on foundation tables; INSERT/UPDATE on candles and ingestion runs |
 | Reader | SELECT on foundation tables only |
 
-Both restricted roles can read the migration revision, cannot delete rows or create permanent/temporary tables, and have no elevated role flags. The check container receives only reader credentials. The future API/agent will use this reader role.
+Both restricted roles can read the migration revision, cannot delete rows or create permanent/temporary tables, and have no elevated role flags. The check container receives only reader credentials. The API and agent use this reader role.
 
 ## Load and refresh historical candles
 
@@ -124,7 +123,7 @@ After database initialization, start the API:
 docker compose up -d --wait api
 ```
 
-Open [interactive API documentation](http://127.0.0.1:8000/docs). Readiness checks database access and revision `0001`; an unavailable database or unexpected revision returns 503. Liveness does not depend on the database. The API receives only reader credentials, creates no schema or data, and makes no Coinbase or OpenAI calls. Run migrations explicitly before starting it.
+Open [interactive API documentation](http://127.0.0.1:8000/docs). Readiness checks database access and revision `0001`; an unavailable database or unexpected revision returns 503. Liveness does not depend on the database or model configuration. The API uses reader database credentials and creates no schema or data. Market GET endpoints make no Coinbase or OpenAI calls; the optional agent POST is described below. Run migrations explicitly before starting it.
 
 Examples using seeded market id `1` (discover ids through `/v1/markets`):
 
@@ -156,6 +155,51 @@ Opt-in check against an already backfilled local database:
 This checks HTTP health, both 2020-01-01 and 2024-01-01 summaries, their 24 derived hourly bars, and latest freshness. It performs no database writes or external provider calls. It needs the documented backfill and a running API; it is separate from deterministic tests.
 
 Query/API verification on **2026-10-05**: the full isolated PostgreSQL suite passed **165 tests** (81 unit and 84 integration). HTTP summaries for both sampled days matched independent reader-role SQL for opening/closing prices, return, high/low, and volume. The known **2020-01-30 17:00–18:40 UTC** gap returned `no_data`, 20 missing buckets, and unavailable metrics. The full stored range through **2026-10-05 15:00 UTC** returned `incomplete`, **710,896 actual buckets and 356 missing**, matching SQL; its summary request plus independent SQL check took about 0.85 seconds in this local sample. A multi-year daily request returned 500 rows and a continuation cursor. Latest correctly reported stale data after the last manual refresh. These are local observations, not throughput guarantees; the API checks did not alter the stored dataset.
+
+## Ask questions through the agent
+
+`POST /v1/agent/query` accepts one JSON question and returns `status`, `answer`, exact server-collected `evidence`, `limitations`, the configured `model`, retrieval time, and request/tool counts. Each request starts a fresh conversation. Inspect its schemas in [Swagger UI](http://127.0.0.1:8000/docs).
+
+The model selects only `get_latest_btc_candle()` or `get_btc_window_summary(start, end)`. Application code binds both to Coinbase Exchange spot BTC/USD and executes the same reader-role calculations as the market endpoints. Server validation rejects unknown functions, extra/duplicate arguments, naive or nonaligned timestamps, and oversized windows. No SQL, ingestion, browser, other-market, or write tool is exposed. An answer is accepted only after a data tool executes; its separate evidence preserves exact decimals, source, period, provenance, and coverage.
+
+The agent is **disabled by default**, returning a sanitized 503 while market endpoints keep working. The initial live demonstration used `gpt-6-luna`; model choice remains configurable and access depends on the account. Configure `OPENAI_MODEL` and your `OPENAI_API_KEY` in the ignored local `.env`, and set `AGENT_ENABLED=true` when deliberately enabling paid requests. Keep the key out of Git and chat. Only the API service receives these variables. Rebuild and recreate it after configuration/code changes:
+
+```powershell
+docker compose config --quiet
+docker compose build migrate
+docker compose up -d --wait api
+```
+
+Once enabled, this example makes paid OpenAI calls:
+
+```powershell
+$agentQuestion = @{ question = 'What were the BTC/USD high, low, and BTC volume on January 1, 2024, in UTC?' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8000/v1/agent/query' -ContentType 'application/json' -Body $agentQuestion
+```
+
+Empty/gapped windows and stale latest candles return `status: limited`, a server-written explanation, and collected evidence without another model request. Full-window metrics remain unavailable when candles are missing. Invalid tool requests, ungrounded model responses, exhausted budgets, and deadlines also return limitations. Model/database failures return 503 while retaining bounded evidence. Malformed questions return 422; bodies over 64 KiB return 413. A busy agent returns 503 immediately.
+
+Defaults allow **three sequential tools, four model requests, a 60-second execution budget, 2,048 output tokens per model request, 4,000 question characters, and 8,000 answer characters**. One agent request runs at a time per process. SDK retries are disabled; connect/pool waits are at most five seconds, and model I/O timeouts use the remaining budget. The deadline is checked between synchronous operations: in-flight I/O must return before it is checked, so this is not a guaranteed cancellation time. Model context, tool results, and provider responses are bounded at 128,000, 32,000, and 64,000 serialized bytes by default; oversized tool evidence is omitted. `.env.example` lists the `AGENT_*` controls and validation caps calls at three/four and time at 60 seconds. These are request limits, not a global monetary cap or public-deployment protection.
+
+The official SDK uses Responses API strict function schemas and `store=false`; complete reasoning/function items and their outputs are relayed in memory for stateless continuation. The app does not persist conversations or log full questions, answers, credentials, or SDK payloads. Database transactions finish before model calls. See the [function-calling contract](https://developers.openai.com/api/docs/guides/function-calling) and [stateless reasoning guidance](https://developers.openai.com/api/docs/guides/reasoning).
+
+Agent verification on **2026-10-05**: **237 deterministic tests passed** (147 unit and 90 integration) against PostgreSQL 18.6. The real OpenAI SDK uses an in-memory HTTP transport with synthetic replies, so tests need no real key/network/spend. Agent HTTP evidence matched hand-calculated query/API results exactly, with unchanged candle/audit counts and no checked-out database connection during model waits. Tests cover argument rejection, unsupported tools, stateless reasoning, empty/gapped/stale data, malformed responses, failures, concurrency, and execution/size limits. Formatting, linting, and strict type checks also pass.
+
+Live verification on **2026-10-06** used the actual agent HTTP handler, official SDK, reader credentials, and `gpt-6-luna`. All **seven checks** matched `/latest` or `/summary` evidence using exact UTC windows and a shared real retrieval time per question. Manual inspection verified the source, dates, units, and every numerical claim, including rounded percentages:
+
+| Check | Observed result |
+| --- | --- |
+| Latest before refresh | `limited` / `stale`, with the exact stored candle and age |
+| Latest 24 hours before refresh | `limited` / `incomplete`; 32/288 candles and unavailable full-window metrics |
+| 2024-01-01 UTC | Complete 288/288 coverage; high USD 44,240.80, low USD 42,175.65, volume 7,977.72851143 BTC |
+| 2020-01-01 UTC | Complete 288/288 coverage; open USD 7,165.72, close USD 7,174.33, return +0.12015541% |
+| 2020-01-30 17:00–18:40 UTC | `limited` / `no_data`; 0/20 candles, 20 missing buckets, and unavailable metrics |
+| Latest after manual refresh | Close USD 86,241.41 for 2026-10-06 12:15–12:20 UTC; age about 329 seconds, below the 900-second stale threshold |
+| Latest 24 hours after refresh | 2026-10-05 12:20 through 2026-10-06 12:20 UTC, complete 288/288 coverage; +0.16626352% return, correctly rounded to +0.1663% in the answer |
+
+The manual 72-hour refresh received 864/864 candles, inserted 256, and retained 608 unchanged rows. Agent reads preserved candle/audit counts: 710,896/85 before refresh and 711,152/86 afterward. A separate provider HTTP 429 check returned controlled HTTP 503 / `model_unavailable`, with zero tool calls or data changes. The live batch used a private cumulative spend guard with standard processing and retries disabled; its conservative token-based cost estimate was below US$0.005. This is an upper estimate, not a reconciled billing invoice. The persistent local agent remains disabled.
+
+These inspected examples establish the initial local demonstration, not general factuality across arbitrary prompts. Repeat them against current observations when demonstrating freshness, inspect returned evidence, and refresh ingestion manually as needed. Simulated tests establish tool behavior; systematic model evaluation remains a later checkpoint.
 
 ## Run tests
 
@@ -190,7 +234,7 @@ python -m venv .tools
 .tools\Scripts\uv.exe sync --locked --no-python-downloads
 ```
 
-If uv is already installed, `uv sync --locked --no-python-downloads` is equivalent. Environments and caches are ignored. Runtime dependencies include SQLAlchemy Core, psycopg, Alembic, Pydantic Settings, HTTPX, FastAPI, and Uvicorn; pytest, Ruff, and mypy are development dependencies. The OpenAI SDK will be added at the agent checkpoint.
+If uv is already installed, `uv sync --locked --no-python-downloads` is equivalent. Environments and caches are ignored. Runtime dependencies include SQLAlchemy Core, psycopg, Alembic, Pydantic Settings, HTTPX, FastAPI, Uvicorn, and the official OpenAI SDK; pytest, Ruff, and mypy are development dependencies. OpenAI configuration is required only for the explicitly enabled agent.
 
 ```powershell
 .venv\Scripts\ruff.exe format --check src migrations tests scripts
@@ -222,8 +266,8 @@ Stopping/restarting preserves the volume; `docker compose down` also preserves i
 
 If a job reports database failure, confirm Docker is running, inspect service health with `docker compose ps`, check the local port, and rerun `migrate` with the volume's credentials. `check` requires completed migrations. Rebuild `migrate` after runtime/dependency changes and rebuild the test image after test changes.
 
-Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bearing logs. Docker context excludes secrets, environments, datasets, caches, and Git history; images copy selected files and run application commands as a non-root user. Avoid displaying resolved Compose configuration because it contains passwords; use `config --quiet`. Review files before any commit. Do not stage, commit, or push without an explicit request.
+Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bearing logs. Docker context excludes secrets, environments, datasets, caches, and Git history; images copy selected files and run application commands as a non-root user. Avoid displaying resolved Compose configuration because it contains passwords; use `config --quiet`. Commit small, coherent changes as they are made, after appropriate checks and staged-diff review. Pushes, pull requests, and merges require authorization; see `AGENTS.md` for the local workflow.
 
 ## Next checkpoint
 
-Ground the agent's read-only tools in the implemented query functions. Choose the OpenAI model and smoke-test spending at that checkpoint. Milestone 1 is complete only when the entire slice meets its acceptance criteria.
+Review the completed agent branch for merge, then agree the next development scope. The local Milestone 1 acceptance checks pass; broader data sources and deployment require their own design review.

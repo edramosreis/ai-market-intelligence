@@ -8,14 +8,18 @@ from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
 
 from market_intelligence.api import create_app, get_queries
-from market_intelligence.config import ApiSettings
+from market_intelligence.config import AgentSettings, ApiSettings
 from market_intelligence.queries.models import UnknownMarketError
 from market_intelligence.queries.service import MarketQueries
 
 
 @pytest.fixture
 def client() -> TestClient:
-    app = create_app(engine=cast(Engine, object()), api_settings=ApiSettings(_env_file=None))  # type: ignore[call-arg]
+    app = create_app(
+        engine=cast(Engine, object()),
+        api_settings=ApiSettings(_env_file=None),  # type: ignore[call-arg]
+        agent_settings=AgentSettings(_env_file=None),  # type: ignore[call-arg]
+    )
     return TestClient(app)
 
 
@@ -24,7 +28,7 @@ def test_liveness_and_openapi_require_no_database(client: TestClient) -> None:
         assert client.get("/health/live").json() == {"status": "alive"}
         schema = client.get("/openapi.json").json()
         assert "/v1/markets/{market_id}/summary" in schema["paths"]
-        assert "/v1/agent/query" not in schema["paths"]
+        assert "/v1/agent/query" in schema["paths"]
 
 
 @pytest.mark.parametrize("path", ["/health/ready", "/v1/markets", "/v1/markets/1/latest"])
