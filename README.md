@@ -4,6 +4,8 @@ A market research platform being built to collect historical data, produce repro
 
 **Current state: Milestone 1's local vertical slice is implemented and verified.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only API serves stored candles, derived bars, coverage, latest observations, and summaries. Deterministic agent tests execute those same queries through simulated model responses; a separate live demonstration with `gpt-6-luna` passed manual evidence and answer inspection.
 
+The first Treasury provider component is also implemented: validated monthly reads of daily nominal par yield curves with native dates, exact percentage yields, and explicit missing values. Persistence and Treasury API/agent queries are still in development.
+
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): reviewed design, semantics, trade-offs, and full Milestone 1 acceptance criteria.
@@ -201,6 +203,22 @@ The manual 72-hour refresh received 864/864 candles, inserted 256, and retained 
 
 These inspected examples establish the initial local demonstration, not general factuality across arbitrary prompts. Repeat them against current observations when demonstrating freshness, inspect returned evidence, and refresh ingestion manually as needed. Simulated tests establish tool behavior; systematic model evaluation remains a later checkpoint.
 
+## Read Treasury source samples
+
+The Treasury client reads the official [monthly XML feed](https://home.treasury.gov/treasury-daily-interest-rate-xml-feed), which documents nominal curve history from 1990. It uses existing HTTPX and Python's XML parser, with no additional dependency or API key. It normalizes fourteen maturities from 1 month through 30 years, including the current 1.5-month field. `NEW_DATE` remains a source observation date; yields remain exact percentage values. Missing XML fields and explicit source nulls have distinct reasons, and zero is a valid nominal yield. The primary 30-year field is used without substituting the legacy display field.
+
+Run after the existing locked dependency installation:
+
+```powershell
+.venv\Scripts\python.exe scripts/check_treasury_live.py
+```
+
+This opt-in check fetches January 2020 and January 2024, validates the two-year and ten-year rates, and prints aggregate counts. It reads no local credentials and writes no database or downloaded fixture files. The standard application/test builds include the new package; the development image includes the sample script.
+
+Verification on **2026-10-06**: both sample months returned **21 source dates and 42 available benchmark yields** through the actual client. **50 new provider unit tests passed; all 197 unit tests passed** with the 90 PostgreSQL integration tests deselected. Formatting, linting, and strict type checks pass. Parsing rejects malformed/oversized XML, DTD/entities, duplicate/out-of-month dates, unexpected fields, and monthly pagination; HTTP behavior includes bounded streaming reads, sanitized errors, pacing, retries, and deadlines.
+
+These are source reads, with no Treasury data persisted or exposed through the API yet. Returned source dates do not establish a complete trading/publication calendar; weekends, holidays, and unavailable tenors must not be filled with fabricated observations.
+
 ## Run tests
 
 The full suite uses a separate container, network, database name, and memory-backed PostgreSQL storage, with no published port or development volume. Fixtures refuse integration tests unless host is `db-test` and database is `market_intelligence_test`.
@@ -270,4 +288,4 @@ Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bea
 
 ## Next checkpoint
 
-Review the completed agent branch for merge, then agree the next development scope. The local Milestone 1 acceptance checks pass; broader data sources and deployment require their own design review.
+The agent is merged and the local Milestone 1 acceptance checks pass. Review the Treasury fact/audit schema and calendar/revision semantics before connecting the validated provider client to persistence and read-only queries.

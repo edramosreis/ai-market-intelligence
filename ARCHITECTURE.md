@@ -1,6 +1,8 @@
-# Milestone 1 architecture
+# Application architecture
 
 Status: **reviewed; Milestone 1's local vertical slice is implemented and verified, including manually inspected live-agent answers.**
+
+The initial Treasury provider boundary is also implemented. Its native data contract and limitations are described in section 12; database and query integration remain under review.
 
 The reviewed contract uses Coinbase spot BTC/USD, five-minute candles, and retained history from 2020-01-01 with earlier dates configurable. The local data path and agent loop are implemented. The initial backfill completed with independently verified source gaps; README records ingestion, HTTP, deterministic tests, and separately inspected live-agent verification. Material direction changes remain reviewable.
 
@@ -305,3 +307,15 @@ Integration tests use an explicitly separate disposable test database/container 
 | OpenAI model and demo spend | Initial local demonstration verified with configurable `gpt-6-luna` | Account access and spend authorization must be checked for each live batch; the app's request limits are not a global monetary cap; model-selection experiments wait |
 
 The reviewed source/data contract and local runtime approach authorize incremental Milestone 1 implementation. They do not lock the architecture for all seven milestones. Discuss material changes as they arise; choose the model and live-demo spending at the agent checkpoint without delaying database/ingestion work.
+
+## 12. Treasury provider boundary
+
+The first additional structured dataset is the US Treasury's daily nominal par yield curve. The [official XML contract](https://home.treasury.gov/treasury-daily-interest-rate-xml-feed) supports monthly requests and documents nominal history from 1990. Treasury describes these as par yields derived from market quotations, with a nominal zero floor; they are distinct from traded bond prices or realized investment returns. [Treasury rate definitions](https://home.treasury.gov/policy-issues/financing-the-government/interest-rate-statistics/).
+
+`treasury/models.py` defines a monthly source window, supported maturity labels, source observation dates, exact Decimal percentage yields, and explicit absent-field/source-null reasons. `treasury/client.py` performs fixed-endpoint monthly HTTP reads with injected transport, clocks, pacing, and bounded retry/deadline behavior. It caps decoded response bytes during streaming, rejects redirects and truncated monthly feeds, and validates XML structure before normalizing. It decodes UTF-8 before rejecting document types/entities, validates duplicate and out-of-month dates, and refuses unknown rate fields rather than silently changing the maturity mapping.
+
+The source's midnight-shaped `NEW_DATE` is a date label, not an asserted UTC release instant. Fourteen supported maturities are retained in order, including 1.5 months; that label is not converted into a fixed number of calendar days. `BC_30YEAR` supplies the canonical 30-year yield. The ancillary `BC_30YEARDISPLAY` is neither another maturity nor a fallback for an unavailable primary value. Actual zero rates remain values, while source nulls and absent fields remain unavailable.
+
+The opt-in `scripts/check_treasury_live.py` validates small 2020/2024 monthly samples without credentials, persistence, or model requests. On 2026-10-06 both months returned 21 source dates with 42 available two-year/ten-year yields. Tests use synthetic XML and HTTP transports, separately from those live samples. No additional dependency or service is introduced.
+
+The provider boundary does not yet store Treasury facts or expose Treasury tools/endpoints. Dedicated date/tenor fact and audit tables, source correction policy, and publication-calendar evidence must be reviewed before database integration. A successful feed read describes returned source dates; it does not establish that every expected business session was published. Do not reuse the Coinbase five-minute grid, infer missing holidays, forward-fill yields, or claim retrospective point-in-time availability from retrieval timestamps.
