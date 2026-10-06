@@ -64,7 +64,7 @@ Use concise, imperative commit subjects, such as `Add initial data ingestion mod
 
 Pull requests should explain the change, its purpose, and validation performed. Link relevant issues, identify configuration changes, and include screenshots for visible interface changes.
 
-Commit file additions, edits, and removals promptly in small, coherent batches as work progresses; the user has given standing authorization for these local commits. Run checks appropriate to each batch and review staged changes for credentials and private files before committing. Do not wait for an entire feature or milestone to finish. Each commit should describe a reviewable change and accurately state any pending acceptance checks. Pushes, pull requests, and merges still require user authorization.
+Commit file additions, edits, and removals promptly in small, coherent batches as work progresses. Run checks appropriate to each batch and review staged changes for credentials and private files before committing. Do not wait for an entire feature or milestone to finish. Each commit should describe a reviewable change and accurately state any pending acceptance checks. Pushes, pull requests, and merges still require user authorization. Keep personal workflow preferences and session-specific authorization in ignored local notes.
 
 ## Security & Configuration
 
