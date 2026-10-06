@@ -60,11 +60,11 @@ Agent tests use the real OpenAI SDK with an injected in-memory HTTP transport, n
 
 ## Commit & Pull Request Guidelines
 
-There is no commit history from which to infer conventions. Use concise, imperative commit subjects, such as `Add initial data ingestion module`. Keep commits focused.
+Use concise, imperative commit subjects, such as `Add initial data ingestion module`. Keep commits focused.
 
 Pull requests should explain the change, its purpose, and validation performed. Link relevant issues, identify configuration changes, and include screenshots for visible interface changes.
 
-Propose logical commit boundaries as work progresses, but do not create commits, stage files, or push without an explicit user request.
+Commit file additions, edits, and removals promptly in small, coherent batches as work progresses; the user has given standing authorization for these local commits. Run checks appropriate to each batch and review staged changes for credentials and private files before committing. Do not wait for an entire feature or milestone to finish. Each commit should describe a reviewable change and accurately state any pending acceptance checks. Pushes, pull requests, and merges still require user authorization.
 
 ## Security & Configuration
 
