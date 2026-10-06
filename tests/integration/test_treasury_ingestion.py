@@ -13,7 +13,6 @@ from sqlalchemy import Engine
 
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.candle_store import CandleStore
-from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.tables import treasury_ingestion_runs as runs
 from market_intelligence.db.tables import treasury_yields as yields
 from market_intelligence.db.treasury_store import TreasuryStore
@@ -26,20 +25,6 @@ pytestmark = pytest.mark.integration
 NOW = datetime(2026, 10, 6, tzinfo=UTC)
 START, END = date(2024, 1, 1), date(2024, 2, 1)
 FIELDS = "<d:BC_2YEAR>4.25</d:BC_2YEAR><d:BC_10YEAR>4.125</d:BC_10YEAR>"
-
-
-@pytest.fixture
-def treasury_store(
-    database_settings: DatabaseSettings, admin_engine: Engine
-) -> Iterator[TreasuryStore]:
-    engine = create_db_engine(database_settings, DatabaseRole.INGEST)
-    try:
-        yield TreasuryStore(engine)
-    finally:
-        engine.dispose()
-        with admin_engine.begin() as conn:
-            conn.execute(yields.delete())
-            conn.execute(runs.delete())
 
 
 def wire(request: httpx.Request) -> bytes:

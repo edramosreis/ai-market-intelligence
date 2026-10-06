@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
+from typing import Final
 from uuid import UUID
 
-SOURCE_CODE = "us_treasury"
-DATASET_CODE = "daily_nominal_par_yield_curve"
+SOURCE_CODE: Final = "us_treasury"
+DATASET_CODE: Final = "daily_nominal_par_yield_curve"
 
 
 class TreasuryErrorCode(StrEnum):
