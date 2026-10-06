@@ -2,7 +2,7 @@
 
 Status: **reviewed; Milestone 1's local vertical slice is implemented and verified, including manually inspected live-agent answers.**
 
-The initial Treasury provider boundary is also implemented. Its native data contract and limitations are described in section 12; database and query integration remain under review.
+The Treasury provider boundary and dedicated schema are implemented. Their native data contract and limitations are described in section 12; ingestion and query integration are in development.
 
 The reviewed contract uses Coinbase spot BTC/USD, five-minute candles, and retained history from 2020-01-01 with earlier dates configurable. The local data path and agent loop are implemented. The initial backfill completed with independently verified source gaps; README records ingestion, HTTP, deterministic tests, and separately inspected live-agent verification. Material direction changes remain reviewable.
 
@@ -318,4 +318,8 @@ The source's midnight-shaped `NEW_DATE` is a date label, not an asserted UTC rel
 
 The opt-in `scripts/check_treasury_live.py` validates small 2020/2024 monthly samples without credentials, persistence, or model requests. On 2026-10-06 both months returned 21 source dates with 42 available two-year/ten-year yields. Tests use synthetic XML and HTTP transports, separately from those live samples. No additional dependency or service is introduced.
 
-The provider boundary does not yet store Treasury facts or expose Treasury tools/endpoints. Dedicated date/tenor fact and audit tables, source correction policy, and publication-calendar evidence must be reviewed before database integration. A successful feed read describes returned source dates; it does not establish that every expected business session was published. Do not reuse the Coinbase five-minute grid, infer missing holidays, forward-fill yields, or claim retrospective point-in-time availability from retrieval timestamps.
+Revision `0002` adds `treasury_yields` and `treasury_ingestion_runs`, without changing the candle migration. Facts are keyed by source, dataset, observation date, and tenor, with nullable numeric(38,18) percentage yields, explicit missing reasons, and first/last materialization provenance. Monthly audits retain exact DATE windows, lifecycle, validated date/rate counts, inserted/updated/unchanged counts, missing-value reasons, and previously stored dates omitted by a refresh. Composite foreign keys bind fact provenance to the matching source/dataset run. Nominal yields must be finite and nonnegative; spreads may be negative and are calculated separately. Reader access is SELECT-only; the writer can INSERT/UPDATE facts and audits, without catalog changes or DELETE.
+
+The selected correction policy replaces current values while preserving first ingestion and latest material-change provenance. It does not retain overwritten values or establish historical point-in-time knowledge. Unchanged facts keep their original provenance. An omitted source date is retained and reported rather than silently deleted. A successful feed read describes returned source dates; it does not establish that every expected business session was published. Do not reuse the Coinbase five-minute grid, infer missing holidays, forward-fill yields, or claim retrospective point-in-time availability from retrieval timestamps.
+
+The schema is verified against isolated PostgreSQL, including upgrade preservation of existing candles. The ingestion command and read-only Treasury endpoints are the next integration slice.

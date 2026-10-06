@@ -7,8 +7,15 @@ from sqlalchemy.exc import ProgrammingError
 
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
-from market_intelligence.db.tables import candles, ingestion_runs, markets
+from market_intelligence.db.tables import (
+    candles,
+    ingestion_runs,
+    markets,
+    treasury_ingestion_runs,
+    treasury_yields,
+)
 from tests.integration.test_schema import candle_values
+from tests.integration.test_treasury_schema import treasury_yield_values
 
 pytestmark = pytest.mark.integration
 
@@ -53,6 +60,9 @@ def test_reader_can_read_seed_but_has_no_elevated_privileges(reader: Connection)
         "UPDATE candles SET close = close",
         "DELETE FROM candles",
         "INSERT INTO ingestion_runs DEFAULT VALUES",
+        "INSERT INTO treasury_ingestion_runs DEFAULT VALUES",
+        "UPDATE treasury_yields SET yield_percent = yield_percent",
+        "DELETE FROM treasury_yields",
         "CREATE TABLE unauthorized (id integer)",
         "CREATE TEMP TABLE unauthorized (id integer)",
     ],
@@ -79,6 +89,8 @@ def test_writer_can_insert_and_update_candles_and_runs(writer: Connection) -> No
         "UPDATE markets SET source_product_id = source_product_id",
         "DELETE FROM candles",
         "DELETE FROM ingestion_runs",
+        "DELETE FROM treasury_yields",
+        "DELETE FROM treasury_ingestion_runs",
         "CREATE TABLE unauthorized (id integer)",
         "CREATE TEMP TABLE unauthorized (id integer)",
     ],
@@ -88,3 +100,18 @@ def test_writer_cannot_mutate_references_delete_or_create_tables(
 ) -> None:
     with pytest.raises(ProgrammingError), writer.begin_nested():
         writer.execute(sa.text(statement))
+
+
+def test_treasury_writer_and_reader_grants(writer: Connection, reader: Connection) -> None:
+    values = treasury_yield_values(writer)
+    writer.execute(treasury_yields.insert().values(**values))
+    writer.execute(treasury_yields.update().values(yield_percent=0))
+    writer.execute(
+        treasury_ingestion_runs.update().values(
+            status="failed", finished_at=values["last_updated_at"], error_code="http_error"
+        )
+    )
+    assert writer.execute(sa.select(treasury_yields.c.yield_percent)).scalar_one() == 0
+    # The other role can read both tables, but cannot see this uncommitted fixture.
+    for table in (treasury_yields, treasury_ingestion_runs):
+        reader.execute(sa.select(table).limit(1)).all()

@@ -36,7 +36,7 @@ from market_intelligence.queries.models import (
 )
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-EXPECTED_REVISION = "0001"
+EXPECTED_REVISION = "0002"
 
 
 class MarketQueries:

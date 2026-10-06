@@ -4,7 +4,7 @@ A market research platform being built to collect historical data, produce repro
 
 **Current state: Milestone 1's local vertical slice is implemented and verified.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only API serves stored candles, derived bars, coverage, latest observations, and summaries. Deterministic agent tests execute those same queries through simulated model responses; a separate live demonstration with `gpt-6-luna` passed manual evidence and answer inspection.
 
-The first Treasury provider component is also implemented: validated monthly reads of daily nominal par yield curves with native dates, exact percentage yields, and explicit missing values. Persistence and Treasury API/agent queries are still in development.
+The Treasury provider client and dedicated database schema are also implemented: validated monthly reads of daily nominal par yield curves with native dates, exact percentage yields, and explicit missing values. Ingestion and Treasury API/agent queries are still in development.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -217,7 +217,7 @@ This opt-in check fetches January 2020 and January 2024, validates the two-year 
 
 Verification on **2026-10-06**: both sample months returned **21 source dates and 42 available benchmark yields** through the actual client. **50 new provider unit tests passed; all 197 unit tests passed** with the 90 PostgreSQL integration tests deselected. Formatting, linting, and strict type checks pass. Parsing rejects malformed/oversized XML, DTD/entities, duplicate/out-of-month dates, unexpected fields, and monthly pagination; HTTP behavior includes bounded streaming reads, sanitized errors, pacing, retries, and deadlines.
 
-These are source reads, with no Treasury data persisted or exposed through the API yet. Returned source dates do not establish a complete trading/publication calendar; weekends, holidays, and unavailable tenors must not be filled with fabricated observations.
+These are source reads, with no Treasury data loaded or exposed through the API yet. Revision `0002` adds separate Treasury fact/audit tables and current-value correction semantics, preserving first/latest materialization provenance. Its constraints, least-privilege grants, and upgrade preservation of candle data pass the complete **334-test** isolated PostgreSQL suite. Returned source dates do not establish a complete trading/publication calendar; weekends, holidays, and unavailable tenors must not be filled with fabricated observations.
 
 ## Run tests
 
@@ -288,4 +288,4 @@ Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bea
 
 ## Next checkpoint
 
-The agent is merged and the local Milestone 1 acceptance checks pass. Review the Treasury fact/audit schema and calendar/revision semantics before connecting the validated provider client to persistence and read-only queries.
+The Treasury source-date and current-value/provenance contracts are selected, and the schema is verified. Connect the validated client to monthly transactional ingestion and shared read-only queries next.
