@@ -1,8 +1,8 @@
 # Milestone 1 architecture
 
-Status: **reviewed; foundation, ingestion, query/API, and agent implemented. Live model acceptance remains. Milestone 1 is in progress.**
+Status: **reviewed; Milestone 1's local vertical slice is implemented and verified, including manually inspected live-agent answers.**
 
-The user approved Coinbase spot BTC/USD, five-minute candles, retained history from 2020-01-01 with earlier dates configurable, foundation, ingestion, query/API, and agent development. The local data path and agent loop are implemented. The initial backfill completed with independently verified source gaps; README records ingestion, HTTP, and simulated-agent verification. The initial model/spend decision is approved; provider access and live model inspection remain outstanding. Material direction changes remain reviewable.
+The reviewed contract uses Coinbase spot BTC/USD, five-minute candles, and retained history from 2020-01-01 with earlier dates configurable. The local data path and agent loop are implemented. The initial backfill completed with independently verified source gaps; README records ingestion, HTTP, deterministic tests, and separately inspected live-agent verification. Material direction changes remain reviewable.
 
 ## 1. Goal and scope
 
@@ -241,11 +241,11 @@ Every supported market-data answer must have executed a data tool. Reject unknow
 
 Prompt the model to attribute Coinbase BTC/USD, identify the UTC interval, explain freshness or gaps, and ground every numerical claim in tool outputs. Return the exact server-collected evidence separately from the prose so the result can be inspected. Strict arguments and prompting do not guarantee factual prose; the live demonstration is inspected manually in Milestone 1, while systematic factuality evaluation remains Milestone 6.
 
-Keep the selected function-capable model in `OPENAI_MODEL`; do not hard-code a model or assume account availability. The user approved `gpt-6-luna` for the initial live acceptance batch on 2026-10-06; credentials/account access and live results remain unverified. Model comparisons and routing wait for Milestone 6. Normal automated tests use fake SDK responses and require no API key, network, or spend. Do not persist conversation history or log full questions, responses, authorization headers, or SDK debug payloads.
+Keep the selected function-capable model in `OPENAI_MODEL`; do not hard-code a model or assume account availability. The initial live demonstration used `gpt-6-luna` and passed evidence and answer inspection. Model comparisons and routing remain later work. Normal automated tests use fake SDK responses and require no API key, network, or spend. Do not persist conversation history or log full questions, responses, authorization headers, or SDK debug payloads.
 
 `AGENT_ENABLED` defaults false. Complete `OPENAI_API_KEY` and `OPENAI_MODEL` configuration is required before enabling calls. The API lifespan owns and closes the optional SDK client; only its Compose service receives model credentials, alongside reader credentials. Market GET endpoints/readiness work without model configuration. Agent POST returns `AgentResult` with server-collected evidence, counts, model, and limitations. Model/database failures map to 503; invalid questions to 422 and bodies over 64 KiB to 413. Empty/gapped/stale results stop with server-written limitations and evidence. Oversized evidence is omitted to preserve output bounds. See README and `.env.example` for defaults and activation.
 
-Stateless requests set `store=false`; all returned reasoning/function items and matching `function_call_output` items are relayed in memory. This follows the [OpenAI stateless reasoning guidance](https://developers.openai.com/api/docs/guides/reasoning). The complete 237-test PostgreSQL suite passes; the simulated replies test execution and evidence, not the selected live model's prose. Live model acceptance remains outstanding.
+Stateless requests set `store=false`; all returned reasoning/function items and matching `function_call_output` items are relayed in memory. This follows the [OpenAI stateless reasoning guidance](https://developers.openai.com/api/docs/guides/reasoning). The complete 237-test PostgreSQL suite passes; the simulated replies test execution and evidence. Seven separately inspected live checks verified current and historical prose, exact query evidence, and stale/incomplete/no-data limitations. See README for observed windows and values; these examples do not establish factuality for arbitrary prompts.
 
 ## 9. Dependencies and local development
 
@@ -276,7 +276,7 @@ Only `.env.example` placeholders are public. Construct connection URLs from sett
 
 ## 10. Milestone 1 acceptance criteria
 
-These are acceptance checks for the complete vertical slice. Foundation, ingestion, query/API, and simulated agent execution checks pass against actual PostgreSQL, including constraints/roles, transactional replay, resumable backfill, hand-calculated analytics, gaps, derived bars, pagination, serialization, staleness, snapshots, and tool/budget boundaries. README records verification evidence. The initial model/spend decision is approved; local credentials, enforcing the batch budget, and inspecting the full live vertical slice remain outstanding.
+The local vertical slice meets these acceptance checks. Foundation, ingestion, query/API, and simulated agent execution checks pass against actual PostgreSQL, including constraints/roles, transactional replay, resumable backfill, hand-calculated analytics, gaps, derived bars, pagination, serialization, staleness, snapshots, and tool/budget boundaries. On 2026-10-06 the live agent demonstration also passed manual inspection under a private cumulative spend guard. README records verification evidence. Public deployment and broader model evaluation are separate work.
 
 | Criterion | Evidence required before calling Milestone 1 complete |
 | --- | --- |
@@ -302,6 +302,6 @@ Integration tests use an explicitly separate disposable test database/container 
 | Freshness and execution | Manual bounded backfills/refreshes; explicit staleness | Unattended updates would require a separate review of scheduling and failure ownership |
 | Corrections and retention | Latest provider values with run provenance, no raw archive | Point-in-time research or auditability would justify immutable raw data and revisions earlier |
 | Package/tooling | Python 3.14, PostgreSQL 18, uv, Core + Alembic, synchronous I/O | Existing preferences or deployment constraints may favor pip/Poetry, direct SQL, another supported runtime, or async |
-| OpenAI model and demo spend | `gpt-6-luna` approved for the initial live-test batch; account access remains unverified | Model ID remains configuration; enforce the approved batch allowance before paid calls; model-selection experiments wait |
+| OpenAI model and demo spend | Initial local demonstration verified with configurable `gpt-6-luna` | Account access and spend authorization must be checked for each live batch; the app's request limits are not a global monetary cap; model-selection experiments wait |
 
 The reviewed source/data contract and local runtime approach authorize incremental Milestone 1 implementation. They do not lock the architecture for all seven milestones. Discuss material changes as they arise; choose the model and live-demo spending at the agent checkpoint without delaying database/ingestion work.

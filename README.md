@@ -2,7 +2,7 @@
 
 A market research platform being built to collect historical data, produce reproducible analysis, and answer questions grounded in stored market observations.
 
-**Current state: Milestone 1 foundation, Coinbase ingestion, historical query/API, and agent implementation are in place.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only API serves stored candles, derived bars, coverage, latest observations, and summaries. Agent tests execute those same queries through simulated model responses. The initial live-test model is selected; inspecting the live demonstration remains before Milestone 1 acceptance.
+**Current state: Milestone 1's local vertical slice is implemented and verified.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only API serves stored candles, derived bars, coverage, latest observations, and summaries. Deterministic agent tests execute those same queries through simulated model responses; a separate live demonstration with `gpt-6-luna` passed manual evidence and answer inspection.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -162,7 +162,7 @@ Query/API verification on **2026-10-05**: the full isolated PostgreSQL suite pas
 
 The model selects only `get_latest_btc_candle()` or `get_btc_window_summary(start, end)`. Application code binds both to Coinbase Exchange spot BTC/USD and executes the same reader-role calculations as the market endpoints. Server validation rejects unknown functions, extra/duplicate arguments, naive or nonaligned timestamps, and oversized windows. No SQL, ingestion, browser, other-market, or write tool is exposed. An answer is accepted only after a data tool executes; its separate evidence preserves exact decimals, source, period, provenance, and coverage.
 
-The agent is **disabled by default**, returning a sanitized 503 while market endpoints keep working. The approved initial live-test model is `gpt-6-luna`; account access and live behavior remain unverified. No paid model call was made during implementation. Configure `OPENAI_MODEL` and your `OPENAI_API_KEY` in the ignored local `.env`, and set `AGENT_ENABLED=true` when deliberately enabling paid requests. Keep the key out of Git and chat. Only the API service receives these variables. Rebuild and recreate it after configuration/code changes:
+The agent is **disabled by default**, returning a sanitized 503 while market endpoints keep working. The initial live demonstration used `gpt-6-luna`; model choice remains configurable and access depends on the account. Configure `OPENAI_MODEL` and your `OPENAI_API_KEY` in the ignored local `.env`, and set `AGENT_ENABLED=true` when deliberately enabling paid requests. Keep the key out of Git and chat. Only the API service receives these variables. Rebuild and recreate it after configuration/code changes:
 
 ```powershell
 docker compose config --quiet
@@ -185,9 +185,21 @@ The official SDK uses Responses API strict function schemas and `store=false`; c
 
 Agent verification on **2026-10-05**: **237 deterministic tests passed** (147 unit and 90 integration) against PostgreSQL 18.6. The real OpenAI SDK uses an in-memory HTTP transport with synthetic replies, so tests need no real key/network/spend. Agent HTTP evidence matched hand-calculated query/API results exactly, with unchanged candle/audit counts and no checked-out database connection during model waits. Tests cover argument rejection, unsupported tools, stateless reasoning, empty/gapped/stale data, malformed responses, failures, concurrency, and execution/size limits. Formatting, linting, and strict type checks also pass.
 
-The initial live check on **2026-10-06** exercised the model-error path: a provider HTTP 429 became a controlled HTTP 503 with `model_unavailable`, zero tool calls, and unchanged candle/audit counts. The batch stopped before answer inspection; this verifies failure handling, not live answer accuracy. The persistent local agent remains disabled.
+Live verification on **2026-10-06** used the actual agent HTTP handler, official SDK, reader credentials, and `gpt-6-luna`. All **seven checks** matched `/latest` or `/summary` evidence using exact UTC windows and a shared real retrieval time per question. Manual inspection verified the source, dates, units, and every numerical claim, including rounded percentages:
 
-Live acceptance remains outstanding. With local credentials ready and the approved batch budget enforced, inspect the latest stored close, the latest 24 complete hours' return, a chosen 2024 day's high/low, and a loaded 2020 day. Compare every evidence item with `/latest` or `/summary` using its exact window, then verify source/date interpretation and every number in the prose. The known `2020-01-30T17:00:00Z`–`2020-01-30T18:40:00Z` gap should return `no_data`; old latest data should report `stale`. Manually refresh ingestion before a current-data demonstration if desired. Simulated tests establish tool behavior, not the selected model's factual prose. Systematic evaluation remains Milestone 6.
+| Check | Observed result |
+| --- | --- |
+| Latest before refresh | `limited` / `stale`, with the exact stored candle and age |
+| Latest 24 hours before refresh | `limited` / `incomplete`; 32/288 candles and unavailable full-window metrics |
+| 2024-01-01 UTC | Complete 288/288 coverage; high USD 44,240.80, low USD 42,175.65, volume 7,977.72851143 BTC |
+| 2020-01-01 UTC | Complete 288/288 coverage; open USD 7,165.72, close USD 7,174.33, return +0.12015541% |
+| 2020-01-30 17:00–18:40 UTC | `limited` / `no_data`; 0/20 candles, 20 missing buckets, and unavailable metrics |
+| Latest after manual refresh | Close USD 86,241.41 for 2026-10-06 12:15–12:20 UTC; age about 329 seconds, below the 900-second stale threshold |
+| Latest 24 hours after refresh | 2026-10-05 12:20 through 2026-10-06 12:20 UTC, complete 288/288 coverage; +0.16626352% return, correctly rounded to +0.1663% in the answer |
+
+The manual 72-hour refresh received 864/864 candles, inserted 256, and retained 608 unchanged rows. Agent reads preserved candle/audit counts: 710,896/85 before refresh and 711,152/86 afterward. A separate provider HTTP 429 check returned controlled HTTP 503 / `model_unavailable`, with zero tool calls or data changes. The live batch used a private cumulative spend guard with standard processing and retries disabled; its conservative token-based cost estimate was below US$0.005. This is an upper estimate, not a reconciled billing invoice. The persistent local agent remains disabled.
+
+These inspected examples establish the initial local demonstration, not general factuality across arbitrary prompts. Repeat them against current observations when demonstrating freshness, inspect returned evidence, and refresh ingestion manually as needed. Simulated tests establish tool behavior; systematic model evaluation remains a later checkpoint.
 
 ## Run tests
 
@@ -258,4 +270,4 @@ Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bea
 
 ## Next checkpoint
 
-Resolve the provider access/limits issue from the initial live attempt, preserve the approved cumulative batch allowance, and inspect answers against their evidence and the historical API. Milestone 1 is complete only when the entire slice meets its acceptance criteria.
+Review the completed agent branch for merge, then agree the next development scope. The local Milestone 1 acceptance checks pass; broader data sources and deployment require their own design review.
