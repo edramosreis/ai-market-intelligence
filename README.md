@@ -4,7 +4,7 @@ A market research platform being built to collect historical data, produce repro
 
 **Current state: Milestone 1's local vertical slice is implemented and verified.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only API serves stored candles, derived bars, coverage, latest observations, and summaries. Deterministic agent tests execute those same queries through simulated model responses; a separate live demonstration with `gpt-6-luna` passed manual evidence and answer inspection.
 
-Treasury ingestion and read-only curve queries are also implemented: daily nominal par yields with native dates, exact percentage values, explicit missing reasons, and current-value provenance. Treasury agent tools remain at the separate integration checkpoint.
+Treasury ingestion, read-only curve queries, and agent tools are also implemented: daily nominal par yields with native dates, exact percentage values, explicit missing reasons, and current-value provenance. Treasury agent execution is tested with simulated model responses; live model acceptance remains pending.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -162,7 +162,18 @@ Query/API verification on **2026-10-05**: the full isolated PostgreSQL suite pas
 
 `POST /v1/agent/query` accepts one JSON question and returns `status`, `answer`, exact server-collected `evidence`, `limitations`, the configured `model`, retrieval time, and request/tool counts. Each request starts a fresh conversation. Inspect its schemas in [Swagger UI](http://127.0.0.1:8000/docs).
 
-The model selects only `get_latest_btc_candle()` or `get_btc_window_summary(start, end)`. Application code binds both to Coinbase Exchange spot BTC/USD and executes the same reader-role calculations as the market endpoints. Server validation rejects unknown functions, extra/duplicate arguments, naive or nonaligned timestamps, and oversized windows. No SQL, ingestion, browser, other-market, or write tool is exposed. An answer is accepted only after a data tool executes; its separate evidence preserves exact decimals, source, period, provenance, and coverage.
+The model selects from four application-owned tools, backed by the same reader-role queries as the HTTP API:
+
+| Tool | Inputs and evidence |
+| --- | --- |
+| `get_latest_btc_candle` | No arguments; latest stored completed Coinbase spot BTC/USD candle, age and staleness |
+| `get_btc_window_summary` | Inclusive `start`, exclusive `end`; UTC dates or aligned timestamps, exact metrics and candle coverage |
+| `get_treasury_curve` | `observed_on` as YYYY-MM-DD; fourteen nominal tenors, missing reasons, provenance and same-date 10Y–2Y spread |
+| `get_treasury_spread_history` | Date-only `start`/`end` and required nullable `cursor`; up to twenty stored source dates per page, 2Y/10Y yields, spreads and provenance |
+
+Application code fixes the Coinbase market and Treasury dataset. Server validation rejects unknown functions, extra/duplicate arguments, unsupported date/timestamp formats, invalid cursors, and oversized windows. The history tool starts with `cursor: null`, then follows returned `next_cursor` values with unchanged bounds. Whole-window coverage counts stored source dates and all normalized tenors, not calendar completeness or only benchmark rates. Separate pages are separate snapshots. An answer is accepted only after a data tool executes; its separate evidence preserves exact decimals, source, period, provenance, and coverage. The agent cannot run SQL, ingest, browse, write, or choose another dataset.
+
+Treasury yields are nominal percentages; 10Y-minus-2Y spreads are signed percentage points and basis points. Zero remains a value; missing reasons remain unavailable. Monthly read audits are feed-fetch evidence, not release timestamps or per-row verification times. The agent uses current corrected values, without historical vintages, implicit forward-fill, or calculations aligning Treasury dates with BTC timestamps.
 
 The agent is **disabled by default**, returning a sanitized 503 while market endpoints keep working. The initial live demonstration used `gpt-6-luna`; model choice remains configurable and access depends on the account. Configure `OPENAI_MODEL` and your `OPENAI_API_KEY` in the ignored local `.env`, and set `AGENT_ENABLED=true` when deliberately enabling paid requests. Keep the key out of Git and chat. Only the API service receives these variables. Rebuild and recreate it after configuration/code changes:
 
@@ -181,11 +192,15 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8000/v1/agent/query' -Cont
 
 Empty/gapped windows and stale latest candles return `status: limited`, a server-written explanation, and collected evidence without another model request. Full-window metrics remain unavailable when candles are missing. Invalid tool requests, ungrounded model responses, exhausted budgets, and deadlines also return limitations. Model/database failures return 503 while retaining bounded evidence. Malformed questions return 422; bodies over 64 KiB return 413. A busy agent returns 503 immediately.
 
+Treasury absent dates return a source-specific `no_data` limitation. Missing normalized rows return `incomplete`; a stored curve with no available yields or a spread page with unavailable benchmark inputs returns `missing_rates`. These cases retain evidence and stop further model requests. If the model finishes with an unfinished history cursor chain, the server replaces its answer with `partial_results` and retains the collected pages. Long histories can exceed the three-call budget; narrow the window rather than interpreting a partial page as a full-window calculation.
+
 Defaults allow **three sequential tools, four model requests, a 60-second execution budget, 2,048 output tokens per model request, 4,000 question characters, and 8,000 answer characters**. One agent request runs at a time per process. SDK retries are disabled; connect/pool waits are at most five seconds, and model I/O timeouts use the remaining budget. The deadline is checked between synchronous operations: in-flight I/O must return before it is checked, so this is not a guaranteed cancellation time. Model context, tool results, and provider responses are bounded at 128,000, 32,000, and 64,000 serialized bytes by default; oversized tool evidence is omitted. `.env.example` lists the `AGENT_*` controls and validation caps calls at three/four and time at 60 seconds. These are request limits, not a global monetary cap or public-deployment protection.
 
 The official SDK uses Responses API strict function schemas and `store=false`; complete reasoning/function items and their outputs are relayed in memory for stateless continuation. The app does not persist conversations or log full questions, answers, credentials, or SDK payloads. Database transactions finish before model calls. See the [function-calling contract](https://developers.openai.com/api/docs/guides/function-calling) and [stateless reasoning guidance](https://developers.openai.com/api/docs/guides/reasoning).
 
 Agent verification on **2026-10-05**: **237 deterministic tests passed** (147 unit and 90 integration) against PostgreSQL 18.6. The real OpenAI SDK uses an in-memory HTTP transport with synthetic replies, so tests need no real key/network/spend. Agent HTTP evidence matched hand-calculated query/API results exactly, with unchanged candle/audit counts and no checked-out database connection during model waits. Tests cover argument rejection, unsupported tools, stateless reasoning, empty/gapped/stale data, malformed responses, failures, concurrency, and execution/size limits. Formatting, linting, and strict type checks also pass.
+
+Treasury agent integration verification on **2026-10-06**: the full suite passed **429 deterministic tests** (255 unit and 174 integration) against isolated PostgreSQL 18.6. Both Treasury tools executed actual reader queries through the HTTP handler; their evidence matched the shared query results and exact SDK tool outputs. Tests cover source-date/cursor validation, missing/null/zero yields, signed spread units, pagination and partial-result handling, mixed BTC/Treasury requests, output bounds, sanitized failures, and concurrent corrections. Fact/audit counts were unchanged by agent reads, and no reader connection was held during model calls. Ruff formatting/lint and strict mypy passed over 59 files. One existing TestClient deprecation warning remains. This uses synthetic model replies and establishes execution/evidence behavior; Treasury live model selection and prose acceptance remain pending.
 
 Live verification on **2026-10-06** used the actual agent HTTP handler, official SDK, reader credentials, and `gpt-6-luna`. All **seven checks** matched `/latest` or `/summary` evidence using exact UTC windows and a shared real retrieval time per question. Manual inspection verified the source, dates, units, and every numerical claim, including rounded percentages:
 
@@ -256,9 +271,9 @@ The opt-in HTTP check compares January 1990/2020/2024 to fresh validated source 
 .venv\Scripts\python.exe scripts/check_treasury_api.py
 ```
 
-On 2026-10-06, January 1990/2020/2024 each matched all **294 rates** and **42 benchmark values/spreads** across **three pages**. Existing Coinbase 2020/2024 daily and hourly HTTP checks also passed after the history extension. The full **388-test** isolated PostgreSQL suite, formatting, linting, and strict type checks pass. Agent calls remain disabled locally; Treasury tool integration is separate from these HTTP reads.
+On 2026-10-06, January 1990/2020/2024 each matched all **294 rates** and **42 benchmark values/spreads** across **three pages**. Existing Coinbase 2020/2024 daily and hourly HTTP checks also passed after the history extension. At that checkpoint the full **388-test** isolated PostgreSQL suite, formatting, linting, and strict type checks passed. Agent calls remain disabled locally; those source checks are separate from Treasury agent execution tests.
 
-Review the code in this order: `treasury/models.py` and `client.py` for native source semantics; migration `0002`, `db/treasury_store.py`, and `treasury/service.py` for persistence/replay; `treasury/query_models.py` and `queries.py` for evidence/calculations; then the Treasury routes in `api.py` and matching unit/integration tests. Live check scripts are separate from the synthetic deterministic fixtures.
+Review the code in this order: `treasury/models.py` and `client.py` for native source semantics; migration `0002`, `db/treasury_store.py`, and `treasury/service.py` for persistence/replay; `treasury/query_models.py` and `queries.py` for evidence/calculations; then the Treasury routes in `api.py`, `agent/` adapters/instructions/runner, and matching unit/integration tests. Live check scripts are separate from the synthetic deterministic fixtures.
 
 ## Run tests
 

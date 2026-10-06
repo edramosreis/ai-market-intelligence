@@ -3,6 +3,7 @@
 import base64
 import binascii
 import json
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
@@ -110,6 +111,15 @@ class TreasurySpreadPage(TreasuryDatasetEvidence):
     coverage: TreasuryCoverage
     observations: list[TreasurySpreadObservation]
     next_cursor: str | None
+
+
+def treasury_date(value: str) -> date:
+    try:
+        if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+            raise ValueError
+        return date.fromisoformat(value)
+    except ValueError:
+        raise QueryValidationError("Use Treasury source dates as YYYY-MM-DD") from None
 
 
 def treasury_cursor(start: date, end: date, after: date) -> str:

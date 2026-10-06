@@ -7,6 +7,14 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from market_intelligence.queries.models import Latest, Summary
+from market_intelligence.treasury.query_models import TreasuryCurveResult, TreasurySpreadPage
+
+ToolName = Literal[
+    "get_latest_btc_candle",
+    "get_btc_window_summary",
+    "get_treasury_curve",
+    "get_treasury_spread_history",
+]
 
 
 class StrictArguments(BaseModel):
@@ -35,6 +43,29 @@ class WindowArguments(StrictArguments):
     )
 
 
+class TreasuryCurveArguments(StrictArguments):
+    observed_on: str = Field(
+        pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+        description="Exact Treasury source date as YYYY-MM-DD, from 1990 through today",
+    )
+
+
+class TreasurySpreadArguments(StrictArguments):
+    start: str = Field(
+        pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+        description="Inclusive Treasury source date as YYYY-MM-DD, from 1990",
+    )
+    end: str = Field(
+        pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+        description="Exclusive Treasury source date as YYYY-MM-DD, after start",
+    )
+    cursor: str | None = Field(
+        min_length=1,
+        max_length=1024,
+        description="Null for the first page; otherwise the returned next_cursor for this window",
+    )
+
+
 class AgentQuestion(StrictArguments):
     question: str = Field(min_length=1, max_length=4000)
 
@@ -42,6 +73,8 @@ class AgentQuestion(StrictArguments):
 class LimitationCode(StrEnum):
     NO_DATA = "no_data"
     INCOMPLETE = "incomplete"
+    MISSING_RATES = "missing_rates"
+    PARTIAL_RESULTS = "partial_results"
     STALE = "stale"
     INVALID_ARGUMENTS = "invalid_arguments"
     UNKNOWN_TOOL = "unknown_tool"
@@ -57,9 +90,9 @@ class LimitationCode(StrEnum):
 
 class ToolEvidence(StrictArguments):
     call_id: str
-    name: Literal["get_latest_btc_candle", "get_btc_window_summary"]
-    arguments: dict[str, str]
-    result: Latest | Summary
+    name: ToolName
+    arguments: dict[str, str | None]
+    result: Latest | Summary | TreasuryCurveResult | TreasurySpreadPage
 
 
 class AgentResult(StrictArguments):

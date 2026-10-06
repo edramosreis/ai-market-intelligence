@@ -31,6 +31,7 @@ from tests.agent_fakes import (
     message,
     queries,
     response,
+    treasury_queries,
 )
 from tests.agent_fakes import settings as configured
 from tests.agent_fakes import summary as complete_summary
@@ -39,7 +40,9 @@ WINDOW = json.dumps({"start": START.isoformat(), "end": END.isoformat()})
 
 
 def runner(model: Any, data: Any, **overrides: Any) -> AgentRunner:
-    return AgentRunner(model, MarketTools(data), configured(**overrides), now=lambda: NOW)
+    return AgentRunner(
+        model, MarketTools(data, treasury_queries()), configured(**overrides), now=lambda: NOW
+    )
 
 
 def test_summary_executes_query_and_relays_exact_evidence_and_reasoning() -> None:
@@ -293,7 +296,11 @@ def test_deadline_stops_further_work(stage: str) -> None:
     )
     with model.client() as client:
         agent = AgentRunner(
-            client, MarketTools(data), configured(), now=lambda: NOW, monotonic=lambda: clock[0]
+            client,
+            MarketTools(data, treasury_queries()),
+            configured(),
+            now=lambda: NOW,
+            monotonic=lambda: clock[0],
         )
         result = agent.run("Price?")
     assert result.limitations == [LimitationCode.DEADLINE_EXCEEDED]
@@ -361,7 +368,7 @@ def test_expired_tool_does_not_bypass_evidence_size_limit() -> None:
     with model.client() as client:
         agent = AgentRunner(
             client,
-            MarketTools(data),
+            MarketTools(data, treasury_queries()),
             configured(max_tool_output_bytes=1024),
             now=lambda: NOW,
             monotonic=lambda: clock[0],
@@ -501,7 +508,9 @@ def test_http_maps_service_failure_and_preserves_evidence(unavailable: bool) -> 
             api_settings=ApiSettings(_env_file=None),  # type: ignore[call-arg]
         )
         with TestClient(app) as http:
-            app.state.agent_runner.tools = MarketTools(cast(MarketQueries, queries()))
+            app.state.agent_runner.tools = MarketTools(
+                cast(MarketQueries, queries()), treasury_queries()
+            )
             reply = http.post("/v1/agent/query", json={"question": "Window return?"})
         assert not client.is_closed()
     assert reply.status_code == (503 if unavailable else 200)

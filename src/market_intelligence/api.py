@@ -1,10 +1,9 @@
 """HTTP transport for shared reader queries and the explicitly enabled agent."""
 
 import logging
-import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import datetime
 from typing import Annotated, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Response
@@ -36,7 +35,11 @@ from market_intelligence.queries.models import (
 )
 from market_intelligence.queries.service import MarketQueries
 from market_intelligence.treasury.queries import TreasuryQueries
-from market_intelligence.treasury.query_models import TreasuryCurvePage, TreasuryCurveResult
+from market_intelligence.treasury.query_models import (
+    TreasuryCurvePage,
+    TreasuryCurveResult,
+    treasury_date,
+)
 
 
 class AgentBodyLimit:
@@ -94,15 +97,6 @@ def get_treasury_queries(request: Request) -> TreasuryQueries:
 TreasuryReads = Annotated[TreasuryQueries, Depends(get_treasury_queries)]
 
 
-def treasury_date(value: str) -> date:
-    try:
-        if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
-            raise ValueError
-        return date.fromisoformat(value)
-    except ValueError:
-        raise QueryValidationError("Use Treasury source dates as YYYY-MM-DD") from None
-
-
 def get_agent(request: Request) -> AgentRunner:
     return cast(AgentRunner, request.app.state.agent_runner)
 
@@ -153,7 +147,10 @@ def create_app(
                 )
                 owns_client = True
             app.state.agent_runner = AgentRunner(
-                active_client, MarketTools(app.state.market_queries), agent_config, now=now
+                active_client,
+                MarketTools(app.state.market_queries, app.state.treasury_queries),
+                agent_config,
+                now=now,
             )
             yield
         finally:

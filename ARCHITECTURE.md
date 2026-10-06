@@ -2,7 +2,7 @@
 
 Status: **reviewed; Milestone 1's local vertical slice is implemented and verified, including manually inspected live-agent answers.**
 
-The Treasury provider boundary, dedicated schema, monthly ingestion, and read-only queries/API are implemented. Their native data contract and limitations are described in section 12; agent tools remain at the separate integration checkpoint.
+The Treasury provider boundary, dedicated schema, monthly ingestion, read-only queries/API, and bounded agent tools are implemented. Their native data contract and limitations are described in section 12. Treasury agent execution is verified with simulated model responses; live model acceptance remains pending.
 
 The reviewed contract uses Coinbase spot BTC/USD, five-minute candles, and retained history from 2020-01-01 with earlier dates configurable. The local data path and agent loop are implemented. The initial backfill completed with independently verified source gaps; README records ingestion, HTTP, deterministic tests, and separately inspected live-agent verification. Material direction changes remain reviewable.
 
@@ -25,8 +25,11 @@ flowchart LR
     C[Coinbase Exchange public REST] --> I[One-shot ingestion command]
     I --> V[Validate and normalize candles]
     V --> DB[(PostgreSQL)]
+    TC[US Treasury monthly XML] --> TI[One-shot Treasury ingestion]
+    TI --> TV[Validate native dates and yields]
+    TV --> DB
     U[HTTP client / Swagger UI] --> API[FastAPI]
-    API --> Q[Shared market query functions]
+    API --> Q[Shared reader query functions]
     Q --> DB
     API --> A[Agent runner]
     A <--> O[OpenAI Responses API]
@@ -215,7 +218,7 @@ A single transaction for several years would force unnecessary restart work afte
 | `GET /v1/markets/{market_id}/candles` | Aligned start/end, output resolution of five minutes, fifteen minutes, one hour, or one UTC day; ascending rows, bounded keyset pagination, explicit continuation cursor and constituent coverage |
 | `GET /v1/markets/{market_id}/latest` | Latest stored completed candle, its end timestamp, retrieval time, and staleness |
 | `GET /v1/markets/{market_id}/summary` | Aligned range, deterministic metrics, actual and expected bucket counts, coverage and missing ranges |
-| `POST /v1/agent/query` (future agent checkpoint) | A single bounded question; returns answer and server-collected tool evidence |
+| `POST /v1/agent/query` | A single bounded question; returns answer and server-collected BTC/Treasury tool evidence |
 
 Queries may reach anywhere in retained history. `API_MAX_WINDOW_DAYS` defaults to 3653 (roughly ten years) for each summary/series request; pages contain at most 500 output rows (default 200). This request-width guardrail is independent of retention. Dates mean UTC midnight; timestamps require an offset. Windows align to the requested output interval's UTC epoch grid. A page includes its window, market, intervals, whole-window canonical coverage, and validated keyset continuation cursor. The cursor binds its market/window/interval; page length does not imply complete coverage. Invalid ranges/intervals/cursors return 422, unknown markets 404, and database unavailability a sanitized 503. Empty windows return `no_data`. Future windows expose absent coverage; only candles eligible under the ingestion cutoff are returned.
 
@@ -235,13 +238,15 @@ Latest-data staleness defaults to age exceeding 900 seconds (`API_STALE_AFTER_SE
 
 Use the official Python SDK and Responses API with a short, application-owned function-calling loop. The application executes functions requested by the model and returns their outputs using the corresponding call identifiers. Explicit strict function schemas require closed objects and required fields. [OpenAI function-calling guide](https://developers.openai.com/api/docs/guides/function-calling), [official SDK documentation](https://developers.openai.com/api/docs/libraries).
 
-Expose only `get_latest_btc_candle()` and `get_btc_window_summary(start, end)` initially. Tools bind BTC to the configured Coinbase BTC/USD market and canonical five-minute interval; the model cannot select an arbitrary table, SQL expression, or network target. Pydantic validates arguments again on the server, including time boundaries and range limits. The summary can reference historical dates anywhere in the stored range, including 2024 and earlier; it does not send all constituent candles to the model. Arithmetic stays in Python/SQL.
+Expose only `get_latest_btc_candle()`, `get_btc_window_summary(start, end)`, `get_treasury_curve(observed_on)`, and `get_treasury_spread_history(start, end, cursor)`. Tools bind BTC to the configured Coinbase BTC/USD market and canonical five-minute interval, and Treasury to its nominal par-yield dataset; the model cannot select an arbitrary table, SQL expression, or network target. Pydantic validates arguments again on the server, including time/date boundaries, cursor binding, and range limits. BTC summaries can reference historical dates anywhere in the stored range; they do not send all constituent candles to the model. Treasury uses native source dates, not candle timestamps. Arithmetic stays in Python/SQL.
 
 Runner controls enforce one question per request, at most three tools/four model requests, sequential execution, a 60-second execution budget, and input/output limits. A per-process nonblocking lock admits one agent request; a busy request returns 503. SDK retries are disabled and timeouts use the remaining budget. Deadlines are checked between synchronous operations; an in-flight operation must return before the check, so this is not guaranteed cancellation at 60 seconds. Database reads end before waiting for model responses; integration tests confirm the reader pool has no checked-out connection during those calls.
 
 Every supported market-data answer must have executed a data tool. Reject unknown function names and malformed arguments. Require the first market-data step to request a tool; do not allow a numerical answer without recorded tool evidence. If no data, incomplete coverage, stale data, a tool failure, or a budget limit prevents answering, return that limitation. Tests must cover these branches.
 
 Prompt the model to attribute Coinbase BTC/USD, identify the UTC interval, explain freshness or gaps, and ground every numerical claim in tool outputs. Return the exact server-collected evidence separately from the prose so the result can be inspected. Strict arguments and prompting do not guarantee factual prose; the live demonstration is inspected manually in Milestone 1, while systematic factuality evaluation remains Milestone 6.
+
+Treasury instructions distinguish nominal percent yields from signed spread percentage points/basis points, and source dates from release/retrieval times. A single-date tool retains all fourteen tenors with unavailable values explicit. The history tool returns compact benchmark evidence in twenty-date pages, requiring an explicit nullable cursor. Source-date coverage does not establish a publication calendar. Missing normalized rows, entirely unavailable curves, and unavailable history spread inputs stop with server-written limitations; unfinished cursor chains replace the final answer with `partial_results`. Pages use separate snapshots. No implicit cross-domain date alignment, forward-fill, aggregation, correlation, or causal calculation is added.
 
 Keep the selected function-capable model in `OPENAI_MODEL`; do not hard-code a model or assume account availability. The initial live demonstration used `gpt-6-luna` and passed evidence and answer inspection. Model comparisons and routing remain later work. Normal automated tests use fake SDK responses and require no API key, network, or spend. Do not persist conversation history or log full questions, responses, authorization headers, or SDK debug payloads.
 
@@ -261,7 +266,7 @@ Recommend Python **3.14** and PostgreSQL **18**, with exact supported patch/imag
 | [SQLAlchemy 2 Core](https://docs.sqlalchemy.org/en/20/core/) + [psycopg 3](https://www.psycopg.org/psycopg3/docs/) | Explicit relational queries, connections, exact decimals, PostgreSQL upserts | Direct psycopg SQL is leaner; accept Core's dependency for composable queries and schema metadata, without ORM sessions/relationships |
 | [Alembic](https://alembic.sqlalchemy.org/en/latest/) | Reviewed, versioned schema evolution | Handwritten versioned SQL also works; Alembic adds setup but a familiar migration history. Review migrations; do not trust autogeneration blindly |
 | [HTTPX](https://www.python-httpx.org/) | HTTP timeouts, client lifecycle, and injectable test transports | requests is reasonable for synchronous ingestion; choose one direct HTTP library |
-| Official OpenAI SDK | Responses API integration | Raw HTTP exposes more protocol boilerplate; skip LangChain, LangGraph, and an agent framework for this two-tool loop |
+| Official OpenAI SDK | Responses API integration | Raw HTTP exposes more protocol boilerplate; the bounded four-tool loop does not require LangChain, LangGraph, or an agent framework |
 | [pytest](https://docs.pytest.org/en/stable/) | Focused unit and PostgreSQL integration tests | unittest avoids a dependency; pytest fixtures make injected clients and database setup concise |
 | [Ruff](https://docs.astral.sh/ruff/) + [mypy](https://mypy.readthedocs.io/en/stable/) | Reproducible formatting, linting, and type checks | Separate formatter/linter tools or Pyright are valid; use a single formatter and one type checker |
 | Docker Compose | Local PostgreSQL and reproducible app/job execution | Host-only processes are lighter but harder to reproduce; no Kubernetes or local cloud emulator |
@@ -332,8 +337,10 @@ Resume can reuse a successful historical feed read after verifying normalized st
 
 Both routes include exact same-date 10Y-minus-2Y subtraction in percentage points and basis points (percentage points times 100). Both yields must be available; negative spreads are valid. Evidence exposes the current-value policy, native percent units, UTC retrieval time, per-rate materialization provenance, and latest successful monthly audit with omitted-date counts. Monthly audit time is not a release timestamp or proof that every retained row was returned in that fetch; per-row last source confirmation is not tracked separately. No retrospective vintage claim is made.
 
-The shared `spread_page` query projects that same curve snapshot into compact two-year/ten-year observations for the agent integration checkpoint. It preserves each benchmark's missing reason and provenance, the calculated spread, monthly audit, whole-window coverage, and bound continuation cursor. Twenty source dates fit the default agent output bound without returning the other twelve tenor rows per date. It adds no new SQL calculation or HTTP endpoint.
+The shared `spread_page` query projects that same curve snapshot into compact two-year/ten-year observations for the agent history tool. It preserves each benchmark's missing reason and provenance, the calculated spread, monthly audit, whole-window coverage, and bound continuation cursor. Twenty source dates fit the default agent output bound without returning the other twelve tenor rows per date. It adds no new SQL calculation or HTTP endpoint.
 
 On 2026-10-06 the local 2020-to-current-month backfill stored 1,691 returned source dates and 23,674 normalized facts across 82 successful monthly audits. Independent reader SQL verified counts and retained Coinbase data. Fresh January 2020/2024 samples each matched all 294 stored rates and 42 benchmark yields through three HTTP pages. These are observed local/source checks, not an independent publication-calendar guarantee or a bundled public dataset.
 
 The 1990 history extension on the same date retained 9,197 source dates (1990-01-02 through 2026-10-05), 128,758 normalized facts, 99,712 available yields, and 29,046 absent fields. Every one of the 442 source months has a successful audit; three failed October 2010 attempts remain as resolved operational history. A resumed default-range command reused 441 historical reads and refetched the current month. Independent reader checks confirmed fourteen rows per date, unchanged existing historical fact/provenance content, and 711,152 retained Coinbase candles. January 1990/2020/2024 source-to-HTTP checks each matched 294 rates and 42 benchmark yields through three pages; all 388 isolated tests and quality checks pass. Retained history is independent of the API's bounded request-width guard.
+
+The subsequent Treasury agent integration checkpoint passed 429 deterministic tests (255 unit and 174 integration), Ruff formatting/lint, and strict mypy over 59 files. Simulated model calls exercised real reader queries through HTTP, including compact pagination, missing/zero rates, source-specific limitations, mixed-domain evidence, and corrections during model waits. Exact evidence stayed stable and reader connections were released before model calls. Treasury live prose acceptance remains pending; no paid calls or automatic refreshes were introduced.

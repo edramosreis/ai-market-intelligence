@@ -1,4 +1,4 @@
-"""Only application-selected Coinbase BTC/USD queries can be executed."""
+"""Fixed Coinbase BTC/USD and nominal Treasury reader queries only."""
 
 import json
 from typing import Any, Literal
@@ -9,14 +9,21 @@ from market_intelligence.agent.models import (
     LatestArguments,
     StrictArguments,
     ToolEvidence,
+    TreasuryCurveArguments,
+    TreasurySpreadArguments,
     WindowArguments,
 )
 from market_intelligence.ingestion.models import parse_instant
 from market_intelligence.queries.models import UnknownMarketError, validate_window
 from market_intelligence.queries.service import MarketQueries
+from market_intelligence.treasury.queries import TreasuryQueries
+from market_intelligence.treasury.query_models import treasury_date
 
 LATEST: Literal["get_latest_btc_candle"] = "get_latest_btc_candle"
 SUMMARY: Literal["get_btc_window_summary"] = "get_btc_window_summary"
+TREASURY_CURVE: Literal["get_treasury_curve"] = "get_treasury_curve"
+TREASURY_SPREADS: Literal["get_treasury_spread_history"] = "get_treasury_spread_history"
+TOOL_NAMES = (LATEST, SUMMARY, TREASURY_CURVE, TREASURY_SPREADS)
 
 
 def definitions() -> list[FunctionToolParam]:
@@ -30,6 +37,21 @@ def definitions() -> list[FunctionToolParam]:
             SUMMARY,
             "Read a Coinbase BTC/USD window summary with calculated metrics, coverage, and gaps",
             WindowArguments,
+        ),
+        (
+            TREASURY_CURVE,
+            "Read all fourteen nominal Treasury tenors and the 10Y-minus-2Y spread for one "
+            "source date; includes native percent yields, missing reasons and provenance",
+            TreasuryCurveArguments,
+        ),
+        (
+            TREASURY_SPREADS,
+            "Read up to twenty stored Treasury source dates per page in [start, end), with "
+            "2Y/10Y percent yields and signed spreads in percentage points and basis points. "
+            "Coverage counts the whole window's stored dates/tenors, not calendar completeness. "
+            "Follow next_cursor with unchanged bounds; pages are separate snapshots. "
+            "No window aggregates or date alignment with BTC are calculated",
+            TreasurySpreadArguments,
         ),
     ]
     return [
@@ -60,13 +82,32 @@ def unique_json_object(value: str) -> dict[str, Any]:
 
 
 class MarketTools:
-    def __init__(self, queries: MarketQueries) -> None:
+    def __init__(self, queries: MarketQueries, treasury_queries: TreasuryQueries) -> None:
         self.queries = queries
+        self.treasury_queries = treasury_queries
 
     def execute(self, name: str, arguments: str, call_id: str) -> ToolEvidence:
-        if name not in (LATEST, SUMMARY):
+        if name not in TOOL_NAMES:
             raise LookupError("Unknown tool")
         values = unique_json_object(arguments)
+        if name == TREASURY_CURVE:
+            curve = TreasuryCurveArguments.model_validate(values)
+            return ToolEvidence(
+                call_id=call_id,
+                name=TREASURY_CURVE,
+                arguments=curve.model_dump(),
+                result=self.treasury_queries.curve(treasury_date(curve.observed_on)),
+            )
+        if name == TREASURY_SPREADS:
+            history = TreasurySpreadArguments.model_validate(values)
+            return ToolEvidence(
+                call_id=call_id,
+                name=TREASURY_SPREADS,
+                arguments=history.model_dump(),
+                result=self.treasury_queries.spread_page(
+                    treasury_date(history.start), treasury_date(history.end), 20, history.cursor
+                ),
+            )
         validated: StrictArguments
         if name == LATEST:
             validated = LatestArguments.model_validate(values)

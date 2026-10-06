@@ -4,7 +4,7 @@ import json
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 from typing import cast
 
 import httpx
@@ -21,10 +21,11 @@ from market_intelligence.agent.models import (
     LimitationCode,
     ToolEvidence,
 )
-from market_intelligence.agent.tools import LATEST, SUMMARY, MarketTools, definitions
+from market_intelligence.agent.tools import TOOL_NAMES, MarketTools, definitions
 from market_intelligence.config import AgentSettings
 from market_intelligence.ingestion.models import as_utc, utc_now
-from market_intelligence.queries.models import Latest, UnknownMarketError
+from market_intelligence.queries.models import Latest, Summary, UnknownMarketError
+from market_intelligence.treasury.query_models import TreasuryCurveResult, TreasurySpreadPage
 
 MESSAGES = {
     LimitationCode.NO_DATA: "No stored Coinbase BTC/USD observations are available for this query.",
@@ -37,8 +38,18 @@ MESSAGES = {
         "price; a manual ingestion refresh is needed."
     ),
     LimitationCode.INVALID_ARGUMENTS: (
-        "The agent requested invalid tool arguments. Use an explicit UTC date or a "
-        "five-minute-aligned window."
+        "The agent requested invalid tool arguments. Use YYYY-MM-DD source dates for "
+        "Treasury, or explicit UTC dates/five-minute-aligned timestamps for BTC windows."
+    ),
+    LimitationCode.MISSING_RATES: (
+        "Stored Treasury evidence has unavailable yields or benchmark inputs. Missing rates "
+        "are not zero, and unavailable spreads cannot be calculated. Inspect the returned "
+        "missing reasons and any continuation cursor."
+    ),
+    LimitationCode.PARTIAL_RESULTS: (
+        "Only part of the requested Treasury spread history was retrieved. The returned "
+        "evidence does not establish a whole-window result; use the continuation cursor "
+        "or a narrower date window. Pages are separate snapshots."
     ),
     LimitationCode.UNKNOWN_TOOL: "The agent requested an unsupported tool; none was executed.",
     LimitationCode.DATABASE_UNAVAILABLE: "Stored market observations are temporarily unavailable.",
@@ -58,6 +69,33 @@ MESSAGES = {
     LimitationCode.OUTPUT_LIMIT: "The model or evidence exceeded the configured output limit.",
     LimitationCode.INPUT_LIMIT: "The question exceeds the configured input limit or is empty.",
 }
+
+TREASURY_MESSAGES = {
+    LimitationCode.NO_DATA: (
+        "No stored Treasury source dates are available for this query. No holiday or "
+        "publication-calendar completeness can be inferred from that absence."
+    ),
+    LimitationCode.INCOMPLETE: (
+        "Stored Treasury curves have missing normalized tenor rows. Inspect the returned "
+        "not-stored reasons and available benchmark evidence."
+    ),
+}
+
+
+def partial_spread_history(evidence: list[ToolEvidence]) -> bool:
+    windows: dict[tuple[date, date], tuple[bool, str | None]] = {}
+    for item in evidence:
+        if not isinstance(item.result, TreasurySpreadPage):
+            continue
+        page = item.result
+        key = (page.start, page.end)
+        cursor = item.arguments["cursor"]
+        if cursor is None:
+            windows[key] = (True, page.next_cursor)
+        else:
+            started, expected = windows.get(key, (False, None))
+            windows[key] = (started and cursor == expected, page.next_cursor)
+    return any(not started or cursor is not None for started, cursor in windows.values())
 
 
 class AgentRunner:
@@ -91,9 +129,18 @@ class AgentRunner:
         model_requests = tool_calls = 0
 
         def finish(code: LimitationCode | None, answer: str | None = None) -> AgentResult:
+            if code is None and partial_spread_history(evidence):
+                code = LimitationCode.PARTIAL_RESULTS
+            explanation = MESSAGES.get(code) if code else None
+            if (
+                code
+                and evidence
+                and isinstance(evidence[-1].result, (TreasuryCurveResult, TreasurySpreadPage))
+            ):
+                explanation = TREASURY_MESSAGES.get(code, explanation)
             return AgentResult(
                 status="limited" if code else "answered",
-                answer=MESSAGES[code] if code else (answer or ""),
+                answer=explanation if explanation else (answer or ""),
                 evidence=evidence,
                 limitations=[code] if code else [],
                 model=self.settings.model,
@@ -173,7 +220,7 @@ class AgentRunner:
             if len(calls) != 1:
                 return finish(LimitationCode.INVALID_MODEL_RESPONSE)
             call = calls[0]
-            if call.name not in (LATEST, SUMMARY):
+            if call.name not in TOOL_NAMES:
                 return finish(LimitationCode.UNKNOWN_TOOL)
             if (
                 not call.call_id
@@ -206,10 +253,28 @@ class AgentRunner:
                     return finish(LimitationCode.NO_DATA)
                 if item.result.stale:
                     return finish(LimitationCode.STALE)
-            elif item.result.coverage.status == "no_data":
-                return finish(LimitationCode.NO_DATA)
-            elif item.result.coverage.status == "incomplete":
-                return finish(LimitationCode.INCOMPLETE)
+            elif isinstance(item.result, Summary):
+                if item.result.coverage.status == "no_data":
+                    return finish(LimitationCode.NO_DATA)
+                if item.result.coverage.status == "incomplete":
+                    return finish(LimitationCode.INCOMPLETE)
+            elif isinstance(item.result, TreasuryCurveResult):
+                if item.result.curve.status == "no_data":
+                    return finish(LimitationCode.NO_DATA)
+                if item.result.curve.status == "incomplete_stored_curve":
+                    return finish(LimitationCode.INCOMPLETE)
+                if item.result.curve.available_rates == 0:
+                    return finish(LimitationCode.MISSING_RATES)
+            else:
+                if item.result.coverage.status == "no_data":
+                    return finish(LimitationCode.NO_DATA)
+                if any(
+                    day.curve_status == "incomplete_stored_curve"
+                    for day in item.result.observations
+                ):
+                    return finish(LimitationCode.INCOMPLETE)
+                if any(day.spread.status == "unavailable" for day in item.result.observations):
+                    return finish(LimitationCode.MISSING_RATES)
             # Relay complete output items, including reasoning, for stateless continuation.
             history.extend(
                 cast(ResponseInputItemParam, output.model_dump(mode="json", exclude_none=True))
