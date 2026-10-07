@@ -23,6 +23,11 @@ from market_intelligence.agent.models import (
 )
 from market_intelligence.agent.tools import TOOL_NAMES, MarketTools, definitions
 from market_intelligence.config import AgentSettings
+from market_intelligence.hyperliquid.query_models import (
+    FundingLatest,
+    FundingSummary,
+    OpenInterestLatest,
+)
 from market_intelligence.ingestion.models import as_utc, utc_now
 from market_intelligence.queries.models import Latest, Summary, UnknownMarketError
 from market_intelligence.treasury.query_models import TreasuryCurveResult, TreasurySpreadPage
@@ -40,6 +45,7 @@ MESSAGES = {
     LimitationCode.INVALID_ARGUMENTS: (
         "The agent requested invalid tool arguments. Use YYYY-MM-DD source dates for "
         "Treasury, or explicit UTC dates/five-minute-aligned timestamps for BTC windows."
+        " Hyperliquid funding windows require complete UTC hours from 2024."
     ),
     LimitationCode.MISSING_RATES: (
         "Stored Treasury evidence has unavailable yields or benchmark inputs. Missing rates "
@@ -78,6 +84,34 @@ TREASURY_MESSAGES = {
     LimitationCode.INCOMPLETE: (
         "Stored Treasury curves have missing normalized tenor rows. Inspect the returned "
         "not-stored reasons and available benchmark evidence."
+    ),
+}
+
+
+FUNDING_MESSAGES = {
+    LimitationCode.NO_DATA: (
+        "No stored settled Hyperliquid BTC perpetual funding events are available for this "
+        "query. Missing funding is unavailable, not zero."
+    ),
+    LimitationCode.INCOMPLETE: (
+        "The requested Hyperliquid BTC perpetual funding window has missing UTC settlement "
+        "hours; full-window sums and means are unavailable. Inspect the returned coverage."
+    ),
+    LimitationCode.STALE: (
+        "The latest stored settled Hyperliquid BTC perpetual funding event is stale. "
+        "It cannot establish current funding; a manual funding refresh is needed."
+    ),
+}
+
+OI_MESSAGES = {
+    LimitationCode.NO_DATA: (
+        "No stored Hyperliquid BTC perpetual open-interest receipts are available. "
+        "Historical OI cannot be inferred; manual collection is needed."
+    ),
+    LimitationCode.STALE: (
+        "The latest stored Hyperliquid BTC perpetual open-interest receipt is stale. "
+        "It cannot establish current OI; manual collection is needed. Its timestamp is "
+        "a local receipt time, not an exchange event time."
     ),
 }
 
@@ -138,6 +172,14 @@ class AgentRunner:
                 and isinstance(evidence[-1].result, (TreasuryCurveResult, TreasurySpreadPage))
             ):
                 explanation = TREASURY_MESSAGES.get(code, explanation)
+            elif (
+                code
+                and evidence
+                and isinstance(evidence[-1].result, (FundingLatest, FundingSummary))
+            ):
+                explanation = FUNDING_MESSAGES.get(code, explanation)
+            elif code and evidence and isinstance(evidence[-1].result, OpenInterestLatest):
+                explanation = OI_MESSAGES.get(code, explanation)
             return AgentResult(
                 status="limited" if code else "answered",
                 answer=explanation if explanation else (answer or ""),
@@ -265,7 +307,7 @@ class AgentRunner:
                     return finish(LimitationCode.INCOMPLETE)
                 if item.result.curve.available_rates == 0:
                     return finish(LimitationCode.MISSING_RATES)
-            else:
+            elif isinstance(item.result, TreasurySpreadPage):
                 if item.result.coverage.status == "no_data":
                     return finish(LimitationCode.NO_DATA)
                 if any(
@@ -275,6 +317,16 @@ class AgentRunner:
                     return finish(LimitationCode.INCOMPLETE)
                 if any(day.spread.status == "unavailable" for day in item.result.observations):
                     return finish(LimitationCode.MISSING_RATES)
+            elif isinstance(item.result, FundingSummary):
+                if item.result.coverage.status == "no_data":
+                    return finish(LimitationCode.NO_DATA)
+                if item.result.coverage.status == "incomplete":
+                    return finish(LimitationCode.INCOMPLETE)
+            elif isinstance(item.result, (FundingLatest, OpenInterestLatest)):
+                if item.result.status == "no_data":
+                    return finish(LimitationCode.NO_DATA)
+                if item.result.status == "stale":
+                    return finish(LimitationCode.STALE)
             # Relay complete output items, including reasoning, for stateless continuation.
             history.extend(
                 cast(ResponseInputItemParam, output.model_dump(mode="json", exclude_none=True))

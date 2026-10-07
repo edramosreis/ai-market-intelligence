@@ -6,6 +6,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from market_intelligence.hyperliquid.query_models import (
+    FundingLatest,
+    FundingSummary,
+    OpenInterestLatest,
+)
 from market_intelligence.queries.models import Latest, Summary
 from market_intelligence.treasury.query_models import TreasuryCurveResult, TreasurySpreadPage
 
@@ -14,6 +19,9 @@ ToolName = Literal[
     "get_btc_window_summary",
     "get_treasury_curve",
     "get_treasury_spread_history",
+    "get_latest_btc_funding",
+    "get_btc_funding_summary",
+    "get_latest_btc_open_interest",
 ]
 
 
@@ -47,6 +55,25 @@ class TreasuryCurveArguments(StrictArguments):
     observed_on: str = Field(
         pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
         description="Exact Treasury source date as YYYY-MM-DD, from 1990 through today",
+    )
+
+
+class FundingWindowArguments(StrictArguments):
+    start: str = Field(
+        min_length=10,
+        max_length=40,
+        description=(
+            "Inclusive UTC-hour-aligned ISO date or timestamp with UTC offset, from 2024; "
+            "dates mean UTC midnight"
+        ),
+    )
+    end: str = Field(
+        min_length=10,
+        max_length=40,
+        description=(
+            "Exclusive UTC-hour-aligned ISO date or timestamp with UTC offset, after start "
+            "and no later than the current UTC hour boundary"
+        ),
     )
 
 
@@ -95,7 +122,15 @@ class ToolEvidence(StrictArguments):
     call_id: str
     name: ToolName
     arguments: dict[str, str | None]
-    result: Latest | Summary | TreasuryCurveResult | TreasurySpreadPage
+    result: (
+        Latest
+        | Summary
+        | TreasuryCurveResult
+        | TreasurySpreadPage
+        | FundingLatest
+        | FundingSummary
+        | OpenInterestLatest
+    )
 
 
 class AgentResult(StrictArguments):

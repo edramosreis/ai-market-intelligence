@@ -164,7 +164,11 @@ def create_app(
                 owns_client = True
             app.state.agent_runner = AgentRunner(
                 active_client,
-                MarketTools(app.state.market_queries, app.state.treasury_queries),
+                MarketTools(
+                    app.state.market_queries,
+                    app.state.treasury_queries,
+                    app.state.hyperliquid_queries,
+                ),
                 agent_config,
                 now=now,
             )

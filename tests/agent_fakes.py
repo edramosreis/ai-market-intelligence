@@ -14,6 +14,7 @@ import httpx
 from openai import OpenAI
 
 from market_intelligence.config import AgentSettings, ApiSettings
+from market_intelligence.hyperliquid.queries import HyperliquidQueries
 from market_intelligence.queries.models import (
     CandleEvidence,
     Coverage,
@@ -124,6 +125,10 @@ def queries() -> Mock:
     result.summary.return_value = summary()
     result.latest.return_value = latest()
     return result
+
+
+def hyperliquid_queries() -> Mock:
+    return Mock(spec=HyperliquidQueries)
 
 
 def treasury_curve() -> TreasuryCurveResult:
