@@ -8,6 +8,8 @@ The Treasury component lives in `treasury/`: native date/tenor/yield models, a b
 
 ## Architecture Review and Scope
 
+The Hyperliquid provider component in `hyperliquid/` reads fixed native BTC perpetual funding events and current OI contexts. Preserve signed decimal fractions, exact millisecond source times, derived settlement hours, BTC quantity units, USDT denomination, and distinct USDC collateral/settlement. OI has local fetch/receipt times and a snapshot identity, with no source event timestamp. Inclusive funding pagination must remove only identical boundary overlap and reject ambiguous events. `scripts/check_hyperliquid_live.py` is an opt-in public sample check with no persistence, archive access, or model calls. Existing locked dependencies suffice; persistence is the next checkpoint.
+
 The contract is Coinbase Exchange spot BTC/USD, completed five-minute candles, retained history initially from 2020-01-01, and configurable earlier dates. Milestone 1's local vertical slice is implemented and verified; README records deterministic tests and separately inspected live-agent checks. Review `ARCHITECTURE.md` before continuing. Local planning is kept in ignored `.private/ROADMAP.md`, outside Git and Docker context. Continue consulting and updating it as work progresses, without staging or publishing it; if absent, discuss future scope before implementing later components. Local live-test authorization, account readiness, and cumulative usage are recorded in `.private/AGENT_ACCEPTANCE.md`, `.private/TREASURY_AGENT_ACCEPTANCE.md`, and their separate ignored ledgers. Consult them before paid checks, preserve usage across attempts, and do not treat request limits as a monetary cap. Completing a live check does not authorize additional spending. Material source, data-model, technology, or direction changes require discussion; minor choices stay within the reviewed design.
 
 ## Build, Test, and Development Commands
@@ -30,6 +32,7 @@ Run from the repository root; full installation instructions are in `README.md`.
 - `.venv\Scripts\python.exe -m market_intelligence ingest --start 2024-01-01 --end 2024-01-02`: equivalent host job after dependency installation/database startup.
 - `.venv\Scripts\python.exe scripts/check_coinbase_live.py`: opt-in public API samples from 2020/2024; no database access.
 - `.venv\Scripts\python.exe scripts/check_treasury_live.py`: opt-in public Treasury monthly samples from 1990/2020/2024; no keys, database access, or model calls.
+- `.venv\Scripts\python.exe scripts/check_hyperliquid_live.py`: opt-in public BTC perpetual funding/context samples; no keys, database, paid archives, or model calls.
 - `.venv\Scripts\python.exe scripts/check_treasury_api.py`: opt-in stored HTTP pagination/rates/spreads versus fresh 1990/2020/2024 samples; requires API/backfill, performs no writes or model calls.
 - `docker compose run --rm ingest ingest-treasury --start 2024-01-01 --end 2024-02-01`: load/replay one Treasury month.
 - `docker compose run --rm ingest ingest-treasury --resume`: backfill from 1990; reuse successful historical feed reads and refetch the current month.

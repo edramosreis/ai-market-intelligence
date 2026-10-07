@@ -355,6 +355,32 @@ If a job reports database failure, confirm Docker is running, inspect service he
 
 Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bearing logs. Docker context excludes secrets, environments, datasets, caches, and Git history; images copy selected files and run application commands as a non-root user. Avoid displaying resolved Compose configuration because it contains passwords; use `config --quiet`. Commit small, coherent changes as they are made, after appropriate checks and staged-diff review. Pushes, pull requests, and merges require authorization; see `AGENTS.md` for the local workflow.
 
-## Next checkpoint
+## Hyperliquid provider checkpoint
 
-The Treasury ingestion/query slice is implemented and verified. Review its source semantics, correction/replay behavior, and HTTP evidence before extending the agent's tool contract.
+`hyperliquid/` reads BTC perpetual settled funding and current open interest from the
+[public Info API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals).
+Funding history starts in 2024 for this slice. Rates and premiums retain native signed
+decimal fractions; positive funding means longs pay shorts. Exact millisecond event
+timestamps are retained alongside a derived UTC settlement hour. The client handles
+inclusive 500-record pagination with exact boundary deduplication and bounded requests.
+
+Open interest uses BTC underlying units; mark/oracle prices use USDT denomination.
+USDC collateral and settlement remain distinct from that denomination under the
+[contract specification](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/contract-specifications).
+Each context read records its own identity and local fetch/receipt times, with no
+invented exchange event timestamp. Current context funding is not settled history.
+Historical OI archives and unattended collection are outside this slice.
+
+The existing locked dependencies suffice. After the normal dependency installation,
+run the opt-in source check on the host:
+
+```powershell
+.venv\Scripts\python.exe scripts/check_hyperliquid_live.py
+```
+
+On 2026-10-07 the check returned 24 January 1 funding events and all 744 distinct
+settlement hours for January 2024 through two pages, preserving source offsets. A
+current BTC context also passed validation. These samples perform no database writes,
+archive downloads, or model calls and do not establish all-history coverage.
+Synthetic tests separately exercise parsing, pagination, retries, and response bounds.
+Persistence and the reader API are the next Hyperliquid checkpoint.

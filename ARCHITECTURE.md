@@ -344,3 +344,34 @@ On 2026-10-06 the local 2020-to-current-month backfill stored 1,691 returned sou
 The 1990 history extension on the same date retained 9,197 source dates (1990-01-02 through 2026-10-05), 128,758 normalized facts, 99,712 available yields, and 29,046 absent fields. Every one of the 442 source months has a successful audit; three failed October 2010 attempts remain as resolved operational history. A resumed default-range command reused 441 historical reads and refetched the current month. Independent reader checks confirmed fourteen rows per date, unchanged existing historical fact/provenance content, and 711,152 retained Coinbase candles. January 1990/2020/2024 source-to-HTTP checks each matched 294 rates and 42 benchmark yields through three pages; all 388 isolated tests and quality checks pass. Retained history is independent of the API's bounded request-width guard.
 
 The Treasury agent acceptance checkpoint on 2026-10-07 passed 430 deterministic tests (256 unit and 174 integration), Ruff formatting/lint, and strict mypy over 59 files. Simulated model calls exercised real reader queries through HTTP, including compact pagination, missing/zero rates, source-specific limitations, mixed-domain evidence, and corrections during model waits. Exact evidence stayed stable and reader connections were released before model calls. Six separately inspected live cases covered a 2024 curve, complete 1990 spread history, date-only and absent-date limitations, separate BTC/Treasury evidence, and a three-page partial history. Early live attempts exposed opaque-cursor transcription errors and misleading page-overlap prose; strict server-issued cursor choices and explicit coverage instructions addressed them before successful rechecks. README records observed results. Fact/audit counts stayed unchanged; the persistent agent remained disabled and no automatic refresh was performed. Manual examples do not establish factuality for arbitrary questions.
+
+## 13. Hyperliquid BTC perpetual provider boundary
+
+The next structured source is the native BTC perpetual on Hyperliquid's first perp dex.
+The [Info endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals)
+exposes settled funding events and current asset contexts. `hyperliquid/models.py` retains
+exact UTC event milliseconds, native signed funding/premium fractions, a separately
+derived settlement hour, and OI snapshot identities with local fetch/receipt times.
+`hyperliquid/client.py` uses fixed requests, injected clocks/transport, bounded decoded
+response sizes, retries, pacing, and deadlines. It validates BTC by metadata position,
+not a hardcoded universe index. Current context funding is excluded from settled history.
+
+Time-range responses are limited to 500 records. Inclusive pagination retains only an
+identical boundary event once; duplicate settlement hours, changed boundaries, invalid
+values, and out-of-window events fail. Windows span at most 31 days from the selected
+2024 start. The response may be empty/gapped, and a successful read alone does not
+establish complete hourly history. Source timestamps are never rounded for storage.
+
+The [contract specification](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/contract-specifications)
+maps one contract to one underlying BTC, with USDT denomination and USDC collateral
+and settlement. OI is retained in BTC and mark/oracle context prices in USDT. These
+prices are separate from Coinbase traded spot prices. The signed hourly funding rate
+is a fraction; positive rates mean longs pay shorts. Rate sums do not establish trader
+PnL without a position/notional path. OI has no source event timestamp in this endpoint,
+so it describes a locally received snapshot rather than retrospective hourly coverage.
+
+The opt-in source check on 2026-10-07 validated 24 January 1 funding events, 744 distinct
+January 2024 settlement hours through two pages, and a current BTC context. Forty-five
+synthetic provider checks and all 301 unit tests pass, with Ruff and strict mypy.
+No dependency/service was added. Persistence/query implementation follows this provider
+checkpoint; older OI archives and unattended collection remain outside this slice.
