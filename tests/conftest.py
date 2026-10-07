@@ -9,7 +9,15 @@ from sqlalchemy import Connection, Engine
 from market_intelligence.cli import initialize_database
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
-from market_intelligence.db.tables import treasury_ingestion_runs, treasury_yields
+from market_intelligence.db.hyperliquid_store import HyperliquidStore
+from market_intelligence.db.tables import (
+    funding_events,
+    funding_ingestion_runs,
+    open_interest_runs,
+    open_interest_snapshots,
+    treasury_ingestion_runs,
+    treasury_yields,
+)
 from market_intelligence.db.treasury_store import TreasuryStore
 
 
@@ -62,3 +70,22 @@ def treasury_store(
         with admin_engine.begin() as conn:
             conn.execute(treasury_yields.delete())
             conn.execute(treasury_ingestion_runs.delete())
+
+
+@pytest.fixture
+def hyperliquid_store(
+    database_settings: DatabaseSettings, admin_engine: Engine
+) -> Iterator[HyperliquidStore]:
+    engine = create_db_engine(database_settings, DatabaseRole.INGEST)
+    try:
+        yield HyperliquidStore(engine)
+    finally:
+        engine.dispose()
+        with admin_engine.begin() as conn:
+            for table in (
+                funding_events,
+                funding_ingestion_runs,
+                open_interest_snapshots,
+                open_interest_runs,
+            ):
+                conn.execute(table.delete())

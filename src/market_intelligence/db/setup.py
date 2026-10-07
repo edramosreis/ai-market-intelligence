@@ -13,6 +13,11 @@ TABLE_NAMES = (
     "candles",
     "treasury_ingestion_runs",
     "treasury_yields",
+    "perpetual_instruments",
+    "funding_ingestion_runs",
+    "funding_events",
+    "open_interest_runs",
+    "open_interest_snapshots",
 )
 
 
@@ -96,11 +101,19 @@ def grant_table_access(settings: DatabaseSettings) -> None:
                 "ingestion_runs",
                 "treasury_yields",
                 "treasury_ingestion_runs",
+                "funding_events",
+                "funding_ingestion_runs",
+                "open_interest_runs",
             ):
                 conn.execute(
                     sql.SQL("GRANT INSERT, UPDATE ON TABLE public.{} TO {}").format(
                         sql.Identifier(table), sql.Identifier(ingest_name)
                     )
                 )
+            conn.execute(
+                sql.SQL("GRANT INSERT ON TABLE public.open_interest_snapshots TO {}").format(
+                    sql.Identifier(ingest_name)
+                )
+            )
     except psycopg.Error:
         raise RuntimeError("Database permission setup failed") from None

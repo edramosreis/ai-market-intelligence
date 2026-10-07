@@ -112,3 +112,53 @@ class OpenInterestSnapshot:
         numeric(self.oracle_price_usdt, positive=True)
         object.__setattr__(self, "fetch_started_at", start)
         object.__setattr__(self, "received_at", end)
+
+
+def funding_windows(start: datetime, end: datetime) -> list[FundingWindow]:
+    start, end = utc(start), utc(end)
+    milliseconds(end)
+    if start != hour(start) or start < HISTORY_START or start >= end:
+        raise ValueError("Funding ingestion starts on a UTC hour from 2024, with start < end")
+    result = []
+    while start < end:
+        boundary = (
+            datetime(start.year + 1, 1, 1, tzinfo=UTC)
+            if start.month == 12
+            else datetime(start.year, start.month + 1, 1, tzinfo=UTC)
+        )
+        window = FundingWindow(start, min(boundary, end))
+        result.append(window)
+        start = window.end
+    return result
+
+
+def expected_hours(window: FundingWindow) -> int:
+    if window.start != hour(window.start):
+        raise ValueError("Ingestion windows start on a UTC hour")
+    return ((milliseconds(window.end) - milliseconds(window.start)) + 3_599_999) // 3_600_000
+
+
+class HyperliquidIngestionError(HyperliquidError):
+    def __init__(self, code: HyperliquidErrorCode, operation: str) -> None:
+        super().__init__(code)
+        self.operation = operation
+        self.window: FundingWindow | None = None
+        self.run_id: UUID | None = None
+        self.audit_recorded = False
+
+
+@dataclass(frozen=True)
+class FundingReport:
+    run_id: UUID
+    window: FundingWindow
+    expected_hours: int
+    received: int
+    inserted: int
+    updated: int
+    unchanged: int
+    retained: int
+    skipped: bool = False
+
+    @property
+    def missing_hours(self) -> int:
+        return self.expected_hours - self.received - self.retained

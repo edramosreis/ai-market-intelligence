@@ -14,7 +14,9 @@ from market_intelligence.config import ApiSettings
 from market_intelligence.db.tables import (
     candles,
     data_sources,
+    funding_events,
     markets,
+    open_interest_snapshots,
     treasury_ingestion_runs,
     treasury_yields,
 )
@@ -42,7 +44,7 @@ from market_intelligence.queries.models import (
 )
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-EXPECTED_REVISION = "0002"
+EXPECTED_REVISION = "0003"
 
 
 class MarketQueries:
@@ -74,6 +76,8 @@ class MarketQueries:
             conn.execute(sa.select(markets.c.id).limit(1)).all()
             conn.execute(sa.select(treasury_yields.c.observed_on).limit(1)).all()
             conn.execute(sa.select(treasury_ingestion_runs.c.id).limit(1)).all()
+            conn.execute(sa.select(funding_events.c.event_at).limit(1)).all()
+            conn.execute(sa.select(open_interest_snapshots.c.snapshot_id).limit(1)).all()
             return revisions == [EXPECTED_REVISION]
 
     def predicate(self, market_id: int, cutoff: datetime, window: TimeWindow | None = None) -> Any:

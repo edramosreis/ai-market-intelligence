@@ -28,6 +28,9 @@ flowchart LR
     TC[US Treasury monthly XML] --> TI[One-shot Treasury ingestion]
     TI --> TV[Validate native dates and yields]
     TV --> DB
+    HL[Hyperliquid public Info API] --> HI[Manual funding / OI jobs]
+    HI --> HV[Validate native events / receipt snapshots]
+    HV --> DB
     U[HTTP client / Swagger UI] --> API[FastAPI]
     API --> Q[Shared reader query functions]
     Q --> DB
@@ -373,5 +376,30 @@ so it describes a locally received snapshot rather than retrospective hourly cov
 The opt-in source check on 2026-10-07 validated 24 January 1 funding events, 744 distinct
 January 2024 settlement hours through two pages, and a current BTC context. Forty-five
 synthetic provider checks and all 301 unit tests pass, with Ruff and strict mypy.
-No dependency/service was added. Persistence/query implementation follows this provider
-checkpoint; older OI archives and unattended collection remain outside this slice.
+No dependency/service was added. Older OI archives and unattended collection remain
+outside this slice.
+
+Revision `0003` introduces a read-only perpetual instrument catalog and separate funding
+and OI facts/audits. Funding keys retain source/instrument/exact event time, with one
+event per derived settlement hour. Corrections replace current rates/premiums while
+unchanged values preserve materialization provenance. An event timestamp shifted within
+an existing hour fails for inspection; omitted rows remain stored and are reported.
+There is no overwritten-value archive or retrospective as-of claim. OI is keyed by a
+new receipt identity, append-only for the writer, and binds to one collection audit.
+
+`ingest-funding` plans UTC month chunks from 2024 through the requested eligible end.
+Current source history contains settled events, so its default end is current time,
+not the Coinbase closed-candle cutoff. Resume requires a complete latest successful
+historical read plus matching stored counts; gaps/latest failures are retried and the
+current month is always fetched. Replay without resume checks historical corrections.
+`collect-open-interest` collects one current receipt per invocation, without fabricating
+past history or enabling a schedule. Independent advisory locks exclude simultaneous
+jobs of the same kind while allowing funding, OI, Treasury, and Coinbase independently.
+
+Running audits commit before HTTP. Facts and successful audit counts commit atomically;
+failures roll back that batch and record sanitized errors separately. Earlier committed
+windows survive later failures. Catalogs are SELECT-only, funding/audit tables allow
+writer INSERT/UPDATE, and OI facts allow INSERT only. Reader grants remain SELECT-only.
+The persistence checkpoint passes 519 tests on isolated PostgreSQL, including clean
+migrations, compatibility, replay/corrections, failures, atomicity, gaps, and locks.
+Read-only query/API work follows this checkpoint.

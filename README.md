@@ -383,4 +383,34 @@ settlement hours for January 2024 through two pages, preserving source offsets. 
 current BTC context also passed validation. These samples perform no database writes,
 archive downloads, or model calls and do not establish all-history coverage.
 Synthetic tests separately exercise parsing, pagination, retries, and response bounds.
-Persistence and the reader API are the next Hyperliquid checkpoint.
+Revision `0003` adds a separate BTC perpetual catalog, funding events/monthly-window
+audits, and immutable OI receipts/collection audits. The writer cannot mutate the catalog
+or update/delete OI snapshots; the reader has SELECT-only access. Funding corrections
+update current values and preserve unchanged provenance. Omitted events remain stored
+and reported. Changed source timestamps within an existing settlement hour fail for
+inspection. Historical resume reuses only a complete latest successful read whose stored
+hour count still matches; gaps and failed attempts are refetched, and the current month
+is always fetched. Explicit replay without `--resume` fetches historical corrections.
+
+Rebuild and migrate explicitly, then run manual jobs with writer credentials:
+
+```powershell
+docker compose build migrate
+docker compose run --rm migrate
+docker compose run --rm ingest ingest-funding --start 2024-01-01 --end 2024-02-01
+docker compose run --rm ingest ingest-funding --resume
+docker compose run --rm ingest ingest-funding --refresh
+docker compose run --rm ingest collect-open-interest
+```
+
+Equivalent host commands use `.venv\Scripts\python.exe -m market_intelligence` followed
+by the same job arguments. Funding jobs default to 2024-01-01 through current receipt
+time, split at UTC month boundaries, with three-second request pacing, 90 seconds per
+window and a 900-second overall budget. OI collects exactly one current snapshot with
+a 30-second budget. `--refresh --resume` is rejected. Each job records a running audit,
+fetches without an open write transaction, then commits facts and success atomically;
+sanitized failure audits are separate. No scheduler is started.
+
+All 519 isolated tests pass at this persistence checkpoint, including migration
+compatibility, replay, gaps, rollback, grants, and writer exclusion. The reader API is
+the next checkpoint.
