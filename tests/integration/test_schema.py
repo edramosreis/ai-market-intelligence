@@ -54,9 +54,10 @@ def candle_values(conn: Connection) -> dict[str, Any]:
 
 
 def test_reference_seed_and_schema_match_migrations(connection: Connection) -> None:
-    assert connection.execute(sa.select(data_sources.c.code)).scalars().all() == [
-        "coinbase_exchange"
-    ]
+    assert set(connection.execute(sa.select(data_sources.c.code)).scalars()) == {
+        "coinbase_exchange",
+        "us_treasury",
+    }
     assert set(connection.execute(sa.select(assets.c.code)).scalars()) == {"BTC", "USD"}
     market = connection.execute(sa.select(markets)).mappings().one()
     assert market["source_product_id"] == "BTC-USD"

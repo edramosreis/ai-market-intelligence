@@ -5,7 +5,15 @@ from psycopg import sql
 
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 
-TABLE_NAMES = ("data_sources", "assets", "markets", "ingestion_runs", "candles")
+TABLE_NAMES = (
+    "data_sources",
+    "assets",
+    "markets",
+    "ingestion_runs",
+    "candles",
+    "treasury_ingestion_runs",
+    "treasury_yields",
+)
 
 
 def provision_roles(settings: DatabaseSettings) -> None:
@@ -83,7 +91,12 @@ def grant_table_access(settings: DatabaseSettings) -> None:
                             sql.Identifier(table), sql.Identifier(name)
                         )
                     )
-            for table in ("candles", "ingestion_runs"):
+            for table in (
+                "candles",
+                "ingestion_runs",
+                "treasury_yields",
+                "treasury_ingestion_runs",
+            ):
                 conn.execute(
                     sql.SQL("GRANT INSERT, UPDATE ON TABLE public.{} TO {}").format(
                         sql.Identifier(table), sql.Identifier(ingest_name)

@@ -11,7 +11,13 @@ from sqlalchemy import Connection, Engine
 from sqlalchemy.dialects.postgresql import aggregate_order_by
 
 from market_intelligence.config import ApiSettings
-from market_intelligence.db.tables import candles, data_sources, markets
+from market_intelligence.db.tables import (
+    candles,
+    data_sources,
+    markets,
+    treasury_ingestion_runs,
+    treasury_yields,
+)
 from market_intelligence.ingestion.models import (
     INTERVAL,
     TimeWindow,
@@ -36,7 +42,7 @@ from market_intelligence.queries.models import (
 )
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-EXPECTED_REVISION = "0001"
+EXPECTED_REVISION = "0002"
 
 
 class MarketQueries:
@@ -66,6 +72,8 @@ class MarketQueries:
                 conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
             )
             conn.execute(sa.select(markets.c.id).limit(1)).all()
+            conn.execute(sa.select(treasury_yields.c.observed_on).limit(1)).all()
+            conn.execute(sa.select(treasury_ingestion_runs.c.id).limit(1)).all()
             return revisions == [EXPECTED_REVISION]
 
     def predicate(self, market_id: int, cutoff: datetime, window: TimeWindow | None = None) -> Any:

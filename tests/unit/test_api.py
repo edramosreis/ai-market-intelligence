@@ -7,10 +7,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
 
-from market_intelligence.api import create_app, get_queries
+from market_intelligence.api import create_app, get_queries, get_treasury_queries
 from market_intelligence.config import AgentSettings, ApiSettings
 from market_intelligence.queries.models import UnknownMarketError
 from market_intelligence.queries.service import MarketQueries
+from market_intelligence.treasury.queries import TreasuryQueries
 
 
 @pytest.fixture
@@ -51,6 +52,24 @@ def test_readiness_requires_schema_match(client: TestClient) -> None:
     cast(FastAPI, client.app).dependency_overrides[get_queries] = lambda: queries
     with client:
         assert client.get("/health/ready").status_code == 503
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/v1/treasury/curve?observed_on=2024-01-02",
+        "/v1/treasury/curves?start=2024-01-01&end=2024-02-01",
+    ],
+)
+def test_treasury_database_failure_is_sanitized(client: TestClient, path: str) -> None:
+    queries = Mock(spec=TreasuryQueries)
+    failure = OperationalError("secret query", {"password": "sensitive"}, Exception("private"))
+    queries.curve.side_effect = failure
+    queries.curve_page.side_effect = failure
+    cast(FastAPI, client.app).dependency_overrides[get_treasury_queries] = lambda: queries
+    with client:
+        response = client.get(path)
+    assert response.status_code == 503 and response.json() == {"detail": "Database unavailable"}
 
 
 def test_unknown_market_returns_404(client: TestClient) -> None:

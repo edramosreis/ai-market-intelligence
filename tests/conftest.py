@@ -9,6 +9,8 @@ from sqlalchemy import Connection, Engine
 from market_intelligence.cli import initialize_database
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
+from market_intelligence.db.tables import treasury_ingestion_runs, treasury_yields
+from market_intelligence.db.treasury_store import TreasuryStore
 
 
 @pytest.fixture(autouse=True)
@@ -46,3 +48,17 @@ def connection(admin_engine: Engine) -> Iterator[Connection]:
     with admin_engine.connect() as conn, conn.begin() as transaction:
         yield conn
         transaction.rollback()
+
+
+@pytest.fixture
+def treasury_store(
+    database_settings: DatabaseSettings, admin_engine: Engine
+) -> Iterator[TreasuryStore]:
+    engine = create_db_engine(database_settings, DatabaseRole.INGEST)
+    try:
+        yield TreasuryStore(engine)
+    finally:
+        engine.dispose()
+        with admin_engine.begin() as conn:
+            conn.execute(treasury_yields.delete())
+            conn.execute(treasury_ingestion_runs.delete())

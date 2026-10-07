@@ -34,6 +34,12 @@ from market_intelligence.queries.models import (
     UnknownMarketError,
 )
 from market_intelligence.queries.service import MarketQueries
+from market_intelligence.treasury.queries import TreasuryQueries
+from market_intelligence.treasury.query_models import (
+    TreasuryCurvePage,
+    TreasuryCurveResult,
+    treasury_date,
+)
 
 
 class AgentBodyLimit:
@@ -84,6 +90,13 @@ Queries = Annotated[MarketQueries, Depends(get_queries)]
 MarketId = Annotated[int, Path(ge=1)]
 
 
+def get_treasury_queries(request: Request) -> TreasuryQueries:
+    return cast(TreasuryQueries, request.app.state.treasury_queries)
+
+
+TreasuryReads = Annotated[TreasuryQueries, Depends(get_treasury_queries)]
+
+
 def get_agent(request: Request) -> AgentRunner:
     return cast(AgentRunner, request.app.state.agent_runner)
 
@@ -117,6 +130,7 @@ def create_app(
             settings = database_settings or DatabaseSettings()  # type: ignore[call-arg]
             active_engine = create_db_engine(settings, DatabaseRole.READ)
         app.state.market_queries = MarketQueries(active_engine, api_settings, now)
+        app.state.treasury_queries = TreasuryQueries(active_engine, api_settings, now)
         active_client = model_client
         owns_client = False
         try:
@@ -133,7 +147,10 @@ def create_app(
                 )
                 owns_client = True
             app.state.agent_runner = AgentRunner(
-                active_client, MarketTools(app.state.market_queries), agent_config, now=now
+                active_client,
+                MarketTools(app.state.market_queries, app.state.treasury_queries),
+                agent_config,
+                now=now,
             )
             yield
         finally:
@@ -210,6 +227,20 @@ def create_app(
         return queries.candle_page(
             market_id, window_instant(start), window_instant(end), interval_seconds, limit, cursor
         )
+
+    @app.get("/v1/treasury/curve", response_model=TreasuryCurveResult)
+    def treasury_curve(observed_on: str, queries: TreasuryReads) -> TreasuryCurveResult:
+        return queries.curve(treasury_date(observed_on))
+
+    @app.get("/v1/treasury/curves", response_model=TreasuryCurvePage)
+    def treasury_curves(
+        start: str,
+        end: str,
+        queries: TreasuryReads,
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        cursor: Annotated[str | None, Query(max_length=1024)] = None,
+    ) -> TreasuryCurvePage:
+        return queries.curve_page(treasury_date(start), treasury_date(end), limit, cursor)
 
     @app.post("/v1/agent/query", response_model=AgentResult)
     def agent_query(question: AgentQuestion, runner: Agent, response: Response) -> AgentResult:

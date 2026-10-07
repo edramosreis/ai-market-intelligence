@@ -4,6 +4,8 @@ A market research platform being built to collect historical data, produce repro
 
 **Current state: Milestone 1's local vertical slice is implemented and verified.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only API serves stored candles, derived bars, coverage, latest observations, and summaries. Deterministic agent tests execute those same queries through simulated model responses; a separate live demonstration with `gpt-6-luna` passed manual evidence and answer inspection.
 
+Treasury ingestion, read-only curve queries, and agent tools are also implemented: daily nominal par yields with native dates, exact percentage values, explicit missing reasons, and current-value provenance. Deterministic agent tests and a separately inspected live acceptance batch verify curves, paginated spreads, mixed-source evidence, and controlled limitations.
+
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): reviewed design, semantics, trade-offs, and full Milestone 1 acceptance criteria.
@@ -160,7 +162,18 @@ Query/API verification on **2026-10-05**: the full isolated PostgreSQL suite pas
 
 `POST /v1/agent/query` accepts one JSON question and returns `status`, `answer`, exact server-collected `evidence`, `limitations`, the configured `model`, retrieval time, and request/tool counts. Each request starts a fresh conversation. Inspect its schemas in [Swagger UI](http://127.0.0.1:8000/docs).
 
-The model selects only `get_latest_btc_candle()` or `get_btc_window_summary(start, end)`. Application code binds both to Coinbase Exchange spot BTC/USD and executes the same reader-role calculations as the market endpoints. Server validation rejects unknown functions, extra/duplicate arguments, naive or nonaligned timestamps, and oversized windows. No SQL, ingestion, browser, other-market, or write tool is exposed. An answer is accepted only after a data tool executes; its separate evidence preserves exact decimals, source, period, provenance, and coverage.
+The model selects from four application-owned tools, backed by the same reader-role queries as the HTTP API:
+
+| Tool | Inputs and evidence |
+| --- | --- |
+| `get_latest_btc_candle` | No arguments; latest stored completed Coinbase spot BTC/USD candle, age and staleness |
+| `get_btc_window_summary` | Inclusive `start`, exclusive `end`; UTC dates or aligned timestamps, exact metrics and candle coverage |
+| `get_treasury_curve` | `observed_on` as YYYY-MM-DD; fourteen nominal tenors, missing reasons, provenance and same-date 10Y–2Y spread |
+| `get_treasury_spread_history` | Date-only `start`/`end` and required nullable `cursor`; up to twenty stored source dates per page, 2Y/10Y yields, spreads and provenance |
+
+Application code fixes the Coinbase market and Treasury dataset. Server validation rejects unknown functions, extra/duplicate arguments, unsupported date/timestamp formats, invalid cursors, and oversized windows. The history tool starts with `cursor: null`, then follows returned `next_cursor` values with unchanged bounds. Its strict schema offers only null and the latest server-issued continuation for each queried window, avoiding transcription of opaque tokens. Whole-window coverage counts stored source dates and all normalized tenors, not calendar completeness or only benchmark rates; only each page's observations identify its returned dates. Separate pages are separate snapshots. An answer is accepted only after a data tool executes; its separate evidence preserves exact decimals, source, period, provenance, and coverage. The agent cannot run SQL, ingest, browse, write, or choose another dataset.
+
+Treasury yields are nominal percentages; 10Y-minus-2Y spreads are signed percentage points and basis points. Zero remains a value; missing reasons remain unavailable. Monthly read audits are feed-fetch evidence, not release timestamps or per-row verification times. The agent uses current corrected values, without historical vintages, implicit forward-fill, or calculations aligning Treasury dates with BTC timestamps.
 
 The agent is **disabled by default**, returning a sanitized 503 while market endpoints keep working. The initial live demonstration used `gpt-6-luna`; model choice remains configurable and access depends on the account. Configure `OPENAI_MODEL` and your `OPENAI_API_KEY` in the ignored local `.env`, and set `AGENT_ENABLED=true` when deliberately enabling paid requests. Keep the key out of Git and chat. Only the API service receives these variables. Rebuild and recreate it after configuration/code changes:
 
@@ -179,11 +192,28 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8000/v1/agent/query' -Cont
 
 Empty/gapped windows and stale latest candles return `status: limited`, a server-written explanation, and collected evidence without another model request. Full-window metrics remain unavailable when candles are missing. Invalid tool requests, ungrounded model responses, exhausted budgets, and deadlines also return limitations. Model/database failures return 503 while retaining bounded evidence. Malformed questions return 422; bodies over 64 KiB return 413. A busy agent returns 503 immediately.
 
+Treasury absent dates return a source-specific `no_data` limitation. Missing normalized rows return `incomplete`; a stored curve with no available yields or a spread page with unavailable benchmark inputs returns `missing_rates`. These cases retain evidence and stop further model requests. If the model finishes with an unfinished history cursor chain, the server replaces its answer with `partial_results` and retains the collected pages. Long histories can exceed the three-call budget; narrow the window rather than interpreting a partial page as a full-window calculation.
+
+Treasury live acceptance on **2026-10-07** used `gpt-6-luna`, the actual agent HTTP handler, and reader-role queries. Exact evidence comparisons and manual inspection accepted six cases:
+
+| Case | Observed result |
+| --- | --- |
+| 2024-01-02 curve | All fourteen tenor labels; thirteen available yields; 2Y 4.33%, 10Y 3.95%, and spread −0.38 percentage points / −38 basis points |
+| January 1990 history | Twenty-one source dates across two pages; every reported date/spread matched the evidence |
+| 2010-10-11 date-only entry | Fourteen `field_absent` yields, zero available rates, and `missing_rates` |
+| Absent 1990-01-01 date | `no_data`, without inventing a holiday or another date |
+| Separate BTC/Treasury observations | January 1, 2024 BTC high/low/volume and January 2 Treasury benchmarks matched their separate source/window evidence |
+| January–April 1990 history | Three pages retained sixty of eighty-two stored dates; `partial_results` preserved the continuation cursor |
+
+Early attempts exposed altered cursor strings and a prose claim of page overlap inferred from repeated whole-window coverage. The strict cursor choices and explicit page-versus-window instructions were added, then complete and bounded pagination were rechecked successfully. Database fact/audit counts remained unchanged, reader connections were released before model calls, and the persistent API stayed disabled. These are inspected examples, not a guarantee of factual prose for arbitrary questions.
+
 Defaults allow **three sequential tools, four model requests, a 60-second execution budget, 2,048 output tokens per model request, 4,000 question characters, and 8,000 answer characters**. One agent request runs at a time per process. SDK retries are disabled; connect/pool waits are at most five seconds, and model I/O timeouts use the remaining budget. The deadline is checked between synchronous operations: in-flight I/O must return before it is checked, so this is not a guaranteed cancellation time. Model context, tool results, and provider responses are bounded at 128,000, 32,000, and 64,000 serialized bytes by default; oversized tool evidence is omitted. `.env.example` lists the `AGENT_*` controls and validation caps calls at three/four and time at 60 seconds. These are request limits, not a global monetary cap or public-deployment protection.
 
 The official SDK uses Responses API strict function schemas and `store=false`; complete reasoning/function items and their outputs are relayed in memory for stateless continuation. The app does not persist conversations or log full questions, answers, credentials, or SDK payloads. Database transactions finish before model calls. See the [function-calling contract](https://developers.openai.com/api/docs/guides/function-calling) and [stateless reasoning guidance](https://developers.openai.com/api/docs/guides/reasoning).
 
 Agent verification on **2026-10-05**: **237 deterministic tests passed** (147 unit and 90 integration) against PostgreSQL 18.6. The real OpenAI SDK uses an in-memory HTTP transport with synthetic replies, so tests need no real key/network/spend. Agent HTTP evidence matched hand-calculated query/API results exactly, with unchanged candle/audit counts and no checked-out database connection during model waits. Tests cover argument rejection, unsupported tools, stateless reasoning, empty/gapped/stale data, malformed responses, failures, concurrency, and execution/size limits. Formatting, linting, and strict type checks also pass.
+
+Treasury agent integration verification on **2026-10-06**: the full suite passed **429 deterministic tests** (255 unit and 174 integration) against isolated PostgreSQL 18.6. Both Treasury tools executed actual reader queries through the HTTP handler; their evidence matched the shared query results and exact SDK tool outputs. Tests cover source-date/cursor validation, missing/null/zero yields, signed spread units, pagination and partial-result handling, mixed BTC/Treasury requests, output bounds, sanitized failures, and concurrent corrections. Fact/audit counts were unchanged by agent reads, and no reader connection was held during model calls. Ruff formatting/lint and strict mypy passed over 59 files. One existing TestClient deprecation warning remains. This uses synthetic model replies and establishes execution/evidence behavior; Treasury live model selection and prose acceptance remain pending.
 
 Live verification on **2026-10-06** used the actual agent HTTP handler, official SDK, reader credentials, and `gpt-6-luna`. All **seven checks** matched `/latest` or `/summary` evidence using exact UTC windows and a shared real retrieval time per question. Manual inspection verified the source, dates, units, and every numerical claim, including rounded percentages:
 
@@ -200,6 +230,63 @@ Live verification on **2026-10-06** used the actual agent HTTP handler, official
 The manual 72-hour refresh received 864/864 candles, inserted 256, and retained 608 unchanged rows. Agent reads preserved candle/audit counts: 710,896/85 before refresh and 711,152/86 afterward. A separate provider HTTP 429 check returned controlled HTTP 503 / `model_unavailable`, with zero tool calls or data changes. The live batch used a private cumulative spend guard with standard processing and retries disabled; its conservative token-based cost estimate was below US$0.005. This is an upper estimate, not a reconciled billing invoice. The persistent local agent remains disabled.
 
 These inspected examples establish the initial local demonstration, not general factuality across arbitrary prompts. Repeat them against current observations when demonstrating freshness, inspect returned evidence, and refresh ingestion manually as needed. Simulated tests establish tool behavior; systematic model evaluation remains a later checkpoint.
+
+## Read Treasury source samples
+
+The Treasury client reads the official [monthly XML feed](https://home.treasury.gov/treasury-daily-interest-rate-xml-feed), which documents nominal curve history from 1990. It uses existing HTTPX and Python's XML parser, with no additional dependency or API key. It normalizes fourteen maturities from 1 month through 30 years, including the current 1.5-month field. `NEW_DATE` remains a source observation date; yields remain exact percentage values. Missing XML fields and explicit source nulls have distinct reasons, and zero is a valid nominal yield. The primary 30-year field is used without substituting the legacy display field.
+
+Run after the existing locked dependency installation:
+
+```powershell
+.venv\Scripts\python.exe scripts/check_treasury_live.py
+```
+
+This opt-in check fetches January 1990, January 2020, and January 2024, validates the two-year and ten-year rates, and prints aggregate counts. It reads no local credentials and writes no database or downloaded fixture files. The standard application/test builds include the new package; the development image includes the sample script.
+
+Initial verification on **2026-10-06**: the 2020/2024 sample months each returned **21 source dates and 42 available benchmark yields** through the actual client. Provider unit tests cover the boundary. Parsing rejects malformed/oversized XML, DTD/entities, duplicate/out-of-month dates, unexpected fields, and monthly pagination; HTTP behavior includes bounded streaming reads, sanitized errors, pacing, retries, and deadlines checked as each decoded transport chunk arrives. An in-flight synchronous read must still return before its deadline is checked.
+
+These opt-in source checks perform no writes. Revision `0002` adds separate Treasury fact/audit tables and current-value correction semantics, preserving first/latest materialization provenance. PostgreSQL tests verify constraints, grants, migration compatibility, replay/corrections, omitted-date retention, atomic rollback, independent locking, resume, pagination, spreads, and concurrent-correction snapshots. Returned source dates do not establish a complete trading/publication calendar; weekends, holidays, and unavailable tenors must not be filled with fabricated observations.
+
+After building the runtime image and running migrations as documented above, load Treasury data with the existing writer-only job:
+
+```powershell
+docker compose run --rm ingest ingest-treasury --start 2024-01-01 --end 2024-02-01
+docker compose run --rm ingest ingest-treasury --resume
+docker compose run --rm ingest ingest-treasury --refresh
+```
+
+Bounds are first-of-month dates with an exclusive end. Treasury's default history begins **1990-01-01**, with later starts configurable; the default end includes the current source month. Running `--resume` extends an existing 2020 backfill into the earlier history while reusing successful historical monthly reads. Coinbase BTC/USD continues to start in 2020 by default. Host execution uses `.venv\Scripts\python.exe -m market_intelligence ingest-treasury` with the same flags after locked dependency installation and database startup. No new service or dependency is needed.
+
+Resume reuses validated historical feed reads only when stored dates still have all fourteen normalized tenor rows; it always refetches the current month. It does not certify calendar completeness or fetch later historical revisions. Refresh replays the previous/current months; combining `--refresh --resume` is rejected. Replay an older month without `--resume` to check corrections. If a replay fails, retry that exact month without `--resume`, then rerun the original command; an older success must not skip the intended correction fetch. Each source month commits its facts and success audit together; failures retain earlier months and record a sanitized failed audit. Unchanged facts preserve provenance. Dates omitted by a later response remain stored and are counted as `retained_dates`, without being marked freshly verified. `--month-seconds` and `--max-seconds` bound fetch/validation work, and `--request-interval` controls sequential request pacing. Scheduling remains manual.
+
+## Explore stored Treasury curves
+
+Use [Swagger UI](http://127.0.0.1:8000/docs) after the normal migration/API startup. The two routes share the reader-role query functions:
+
+| Route | Inputs and result |
+| --- | --- |
+| `GET /v1/treasury/curve` | `observed_on=2024-01-02`; native-date rates, missing reasons, provenance, and same-date 10Y-minus-2Y spread |
+| `GET /v1/treasury/curves` | Half-open `start`/`end` dates, `limit` (1–100, default 20), optional opaque `cursor`; observed curves plus whole-window stored-date evidence |
+
+Try [a January 2024 curve](http://127.0.0.1:8000/v1/treasury/curve?observed_on=2024-01-02) or [a seven-curve page](http://127.0.0.1:8000/v1/treasury/curves?start=2024-01-01&end=2024-02-01&limit=7). Copy `next_cursor` into the same request's `cursor` parameter until it becomes null. A cursor is bound to the source/dataset/date window; separate pages are separate snapshots. Use YYYY-MM-DD dates without timestamps. Windows are bounded by `API_MAX_WINDOW_DAYS` and today's source date.
+
+`stored` means all fourteen tenor rows are normalized, including unavailable tenors; `available_rates` counts actual values. An absent date returns `no_data`, and a missing stored tenor is `not_stored`. No holiday grid or forward-fill is implied. Yields are Decimal JSON strings in percent. The spread is ten-year minus two-year yield, expressed in percentage points and basis points (times 100), and is unavailable if either same-date input is missing. A negative spread is valid.
+
+`retrieved_at` is the UTC query time. Per-rate provenance records first materialization and latest value/reason change. `latest_month_read` reports a validated source fetch, including retained dates omitted by that response; its timestamp does not certify each retained row's last source confirmation or a release time. Queries use today's stored corrections and cannot reconstruct overwritten values or what was known historically. Treasury endpoints do not make provider/model calls.
+
+Local backfill verification on **2026-10-06**: **82 successful months**, **1,691 source dates** from **2020-01-02 through 2026-10-05**, and **23,674 normalized rate rows**: **21,691 available values**, **1,983 absent-field entries**, and no explicit source-null entries in this load. Independent reader SQL confirmed every stored date has fourteen rows and the existing **711,152 Coinbase candles** remain intact. This describes returned source history; publication-calendar completeness remains unestablished.
+
+The extended **1990-01-01 to current-month** load on 2026-10-06 retained **9,197 returned source dates** from **1990-01-02 through 2026-10-05** and **128,758 normalized rows**: **99,712 available yields** and **29,046 absent fields**. All **442 source months** have a successful audit; 443 successful attempts include a current-month replay. Three failed October 2010 attempts remain in the audit history and were resolved by accepting the feed's valid date-only entry with all fourteen yields explicitly `field_absent`. No yields or source dates are invented. Reader checks found fourteen normalized rows for every stored date, preserved the existing historical Treasury values/provenance, and confirmed all 711,152 Coinbase candles remain intact. Publication-calendar completeness remains unestablished. The default ten-year request-width limit is independent of retained history; use bounded date windows to explore the full dataset.
+
+The opt-in HTTP check compares January 1990/2020/2024 to fresh validated source reads, without database writes, credentials, or model calls:
+
+```powershell
+.venv\Scripts\python.exe scripts/check_treasury_api.py
+```
+
+On 2026-10-06, January 1990/2020/2024 each matched all **294 rates** and **42 benchmark values/spreads** across **three pages**. Existing Coinbase 2020/2024 daily and hourly HTTP checks also passed after the history extension. At that checkpoint the full **388-test** isolated PostgreSQL suite, formatting, linting, and strict type checks passed. Agent calls remain disabled locally; those source checks are separate from Treasury agent execution tests.
+
+Review the code in this order: `treasury/models.py` and `client.py` for native source semantics; migration `0002`, `db/treasury_store.py`, and `treasury/service.py` for persistence/replay; `treasury/query_models.py` and `queries.py` for evidence/calculations; then the Treasury routes in `api.py`, `agent/` adapters/instructions/runner, and matching unit/integration tests. Live check scripts are separate from the synthetic deterministic fixtures.
 
 ## Run tests
 
@@ -270,4 +357,4 @@ Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bea
 
 ## Next checkpoint
 
-Review the completed agent branch for merge, then agree the next development scope. The local Milestone 1 acceptance checks pass; broader data sources and deployment require their own design review.
+The Treasury ingestion/query slice is implemented and verified. Review its source semantics, correction/replay behavior, and HTTP evidence before extending the agent's tool contract.

@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from unittest.mock import Mock
+from uuid import UUID
 
 import httpx
 from openai import OpenAI
@@ -22,6 +23,19 @@ from market_intelligence.queries.models import (
     Summary,
 )
 from market_intelligence.queries.service import MarketQueries
+from market_intelligence.treasury.models import TreasuryMissingReason, TreasuryTenor
+from market_intelligence.treasury.queries import TreasuryQueries
+from market_intelligence.treasury.query_models import (
+    TreasuryCoverage,
+    TreasuryCurveEvidence,
+    TreasuryCurveResult,
+    TreasuryMonthRead,
+    TreasuryProvenance,
+    TreasuryRateEvidence,
+    TreasurySpread,
+    TreasurySpreadObservation,
+    TreasurySpreadPage,
+)
 
 START = datetime(2024, 1, 1, tzinfo=UTC)
 END = START + timedelta(minutes=15)
@@ -109,6 +123,84 @@ def queries() -> Mock:
     result.list_markets.return_value = [summary().market]
     result.summary.return_value = summary()
     result.latest.return_value = latest()
+    return result
+
+
+def treasury_curve() -> TreasuryCurveResult:
+    provenance = TreasuryProvenance(
+        first_ingested_at=NOW,
+        last_updated_at=NOW,
+        last_ingestion_run_id=UUID(int=1),
+    )
+    values = {TreasuryTenor.TWO_YEARS: Decimal("4.25"), TreasuryTenor.TEN_YEARS: Decimal("4.125")}
+    return TreasuryCurveResult(
+        retrieved_at=NOW,
+        curve=TreasuryCurveEvidence(
+            observed_on=START.date(),
+            status="stored",
+            stored_rates=14,
+            available_rates=2,
+            rates=[
+                TreasuryRateEvidence(
+                    tenor=tenor,
+                    yield_percent=values.get(tenor),
+                    missing_reason=None if tenor in values else TreasuryMissingReason.FIELD_ABSENT,
+                    provenance=provenance,
+                )
+                for tenor in TreasuryTenor
+            ],
+            spread=TreasurySpread(
+                status="available",
+                percentage_points=Decimal("-0.125"),
+                basis_points=Decimal("-12.5"),
+                missing_inputs=[],
+            ),
+            latest_month_read=TreasuryMonthRead(
+                run_id=UUID(int=1),
+                start=START.date(),
+                end=(START + timedelta(days=31)).date(),
+                finished_at=NOW,
+                received_dates=1,
+                retained_dates=0,
+            ),
+        ),
+    )
+
+
+def treasury_spreads() -> TreasurySpreadPage:
+    curve = treasury_curve().curve
+    return TreasurySpreadPage(
+        retrieved_at=NOW,
+        start=START.date(),
+        end=(START + timedelta(days=1)).date(),
+        coverage=TreasuryCoverage(
+            status="observations_stored",
+            observed_dates=1,
+            stored_rates=14,
+            available_rates=2,
+            source_null=0,
+            field_absent=12,
+            first_observed_on=curve.observed_on,
+            last_observed_on=curve.observed_on,
+        ),
+        observations=[
+            TreasurySpreadObservation(
+                observed_on=curve.observed_on,
+                curve_status=curve.status,
+                two_year=next(rate for rate in curve.rates if rate.tenor == "2Y"),
+                ten_year=next(rate for rate in curve.rates if rate.tenor == "10Y"),
+                spread=curve.spread,
+                latest_month_read=curve.latest_month_read,
+            )
+        ],
+        next_cursor=None,
+    )
+
+
+def treasury_queries() -> Mock:
+    result = Mock(spec=TreasuryQueries)
+    result.curve.return_value = treasury_curve()
+    result.spread_page.return_value = treasury_spreads()
     return result
 
 
