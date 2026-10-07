@@ -420,3 +420,14 @@ separate snapshots. Decimal JSON values are strings. The query/API checkpoint pa
 bounded missing ranges, OI ties, HTTP failures and concurrent-correction snapshots.
 Hyperliquid agent tool integration remains a later checkpoint; the current four-tool
 BTC/Treasury contract and disabled persistent agent remain unchanged.
+
+Live data acceptance on 2026-10-07 retained 24,253 exact funding events across 34
+successful window reads, plus one OI receipt. January 2024's 744 events/rates/premiums
+and aggregate sum matched a fresh source read through four HTTP pages; OI HTTP evidence
+matched independently selected reader SQL by receipt identity and values. A direct
+three-hour source sample confirmed the omitted 2024-08-15 13:00 UTC funding hour.
+Whole-history queries report one missing hour and withhold full-window metrics, even
+though the source reads succeeded. Existing Coinbase/Treasury values and provenance
+matched pre-migration fingerprints. Runtime migration/API checks passed with the agent
+disabled and without model calls or archive access. These observations establish this
+local accepted data path, not universal source retention or arbitrary-model factuality.

@@ -449,3 +449,20 @@ All 541 isolated tests pass, including migrations, grants, replay, gaps, rollbac
 query arithmetic, HTTP serialization, cursor binding, OI ties, and concurrent snapshots.
 The existing four BTC/Treasury agent tools remain the current agent integration;
 Hyperliquid tool selection and separately authorized live acceptance are a later checkpoint.
+
+Local acceptance on 2026-10-07 retained 24,253 funding events and distinct derived hours
+from 2024-01-01T00:00:00.151Z through 2026-10-07T13:00:00.058Z across 34 successful
+window audits, plus one OI receipt. The January 2024 check matched all 744 events,
+timestamps, rates and premiums through four HTTP pages; the arithmetic rate sum matched
+the fresh sample at 0.0242847281 fraction (2.42847281 percent). OI evidence independently
+matched reader SQL by receipt identity, timing, quantity, and both context prices.
+
+One unavailable funding hour, 2024-08-15 13:00 UTC, was independently checked in a
+three-hour source request that returned only its two neighboring events. The full stored
+history reports that gap and withholds full-window metrics; no rate is invented.
+Successful source reads do not erase this limitation, and resume will refetch the gapped
+window. Fingerprints verified unchanged values/provenance for all 711,152 Coinbase
+candles, 86 Coinbase audits, 128,758 Treasury facts and 446 Treasury audits. The rebuilt
+API/database are healthy, the persistent agent remains disabled, and no model call or
+archive access was made for these checks. Test containers/network were removed while
+preserving the development volume.
