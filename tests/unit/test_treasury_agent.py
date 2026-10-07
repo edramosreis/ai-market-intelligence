@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
 from market_intelligence.agent.instructions import instructions
-from market_intelligence.agent.models import LimitationCode
+from market_intelligence.agent.models import LimitationCode, ToolEvidence
 from market_intelligence.agent.runner import AgentRunner
 from market_intelligence.agent.tools import (
     SUMMARY,
@@ -53,10 +53,42 @@ def test_allowlist_has_only_four_closed_tools_with_required_nullable_cursor() ->
     assert schema is not None
     assert schema["additionalProperties"] is False
     assert set(schema["required"]) == {"start", "end", "cursor"}
-    assert {option["type"] for option in schema["properties"]["cursor"]["anyOf"]} == {
-        "string",
-        "null",
-    }
+    assert schema["properties"]["cursor"]["type"] == ["string", "null"]
+    assert schema["properties"]["cursor"]["enum"] == [None]
+
+
+def test_cursor_schema_keeps_only_latest_server_continuations_for_each_window() -> None:
+    page = treasury_spreads()
+    other = page.model_copy(update={"end": date(2024, 1, 4)})
+    first = treasury_cursor(page.start, page.end, page.start)
+    second = treasury_cursor(other.start, other.end, date(2024, 1, 2))
+    pages = [
+        page.model_copy(update={"next_cursor": first}),
+        other.model_copy(update={"next_cursor": second}),
+        page,
+    ]
+    evidence = [
+        ToolEvidence(
+            call_id=f"call_{index}",
+            name=TREASURY_SPREADS,
+            arguments={
+                "start": item.start.isoformat(),
+                "end": item.end.isoformat(),
+                "cursor": None,
+            },
+            result=item,
+        )
+        for index, item in enumerate(pages)
+    ]
+    tools = definitions(evidence)
+    schema = cast(
+        dict[str, Any],
+        next(tool["parameters"] for tool in tools if tool["name"] == TREASURY_SPREADS),
+    )
+    assert schema["properties"]["cursor"]["enum"] == [None, second]
+    assert len(tools) == 4 and all(tool["strict"] for tool in tools)
+    fresh = cast(dict[str, Any], definitions()[-1]["parameters"])
+    assert fresh["properties"]["cursor"]["enum"] == [None]
 
 
 @pytest.mark.parametrize("name,arguments", [(TREASURY_CURVE, CURVE), (TREASURY_SPREADS, HISTORY)])
@@ -213,8 +245,14 @@ def test_partial_history_requires_a_complete_cursor_chain(continue_history: bool
     assert result.limitations == ([] if continue_history else [LimitationCode.PARTIAL_RESULTS])
     assert isinstance(result.evidence[0].result, TreasurySpreadPage)
     assert result.evidence[0].result.next_cursor == token
+    first_schema = cast(dict[str, Any], model.requests[0]["tools"][-1]["parameters"])
+    next_schema = cast(dict[str, Any], model.requests[1]["tools"][-1]["parameters"])
+    assert first_schema["properties"]["cursor"]["enum"] == [None]
+    assert next_schema["properties"]["cursor"]["enum"] == [None, token]
     if continue_history:
         assert treasury.spread_page.call_args.args[-1] == token
+        final_schema = cast(dict[str, Any], model.requests[-1]["tools"][-1]["parameters"])
+        assert final_schema["properties"]["cursor"]["enum"] == [None]
     else:
         assert "Whole requested history" not in result.answer
 

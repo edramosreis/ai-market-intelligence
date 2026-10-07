@@ -1,7 +1,9 @@
 """Fixed Coinbase BTC/USD and nominal Treasury reader queries only."""
 
 import json
-from typing import Any, Literal
+from collections.abc import Sequence
+from datetime import date
+from typing import Any, Literal, cast
 
 from openai.types.responses import FunctionToolParam
 
@@ -17,7 +19,7 @@ from market_intelligence.ingestion.models import parse_instant
 from market_intelligence.queries.models import UnknownMarketError, validate_window
 from market_intelligence.queries.service import MarketQueries
 from market_intelligence.treasury.queries import TreasuryQueries
-from market_intelligence.treasury.query_models import treasury_date
+from market_intelligence.treasury.query_models import TreasurySpreadPage, treasury_date
 
 LATEST: Literal["get_latest_btc_candle"] = "get_latest_btc_candle"
 SUMMARY: Literal["get_btc_window_summary"] = "get_btc_window_summary"
@@ -26,7 +28,7 @@ TREASURY_SPREADS: Literal["get_treasury_spread_history"] = "get_treasury_spread_
 TOOL_NAMES = (LATEST, SUMMARY, TREASURY_CURVE, TREASURY_SPREADS)
 
 
-def definitions() -> list[FunctionToolParam]:
+def definitions(evidence: Sequence[ToolEvidence] = ()) -> list[FunctionToolParam]:
     specifications: list[tuple[str, str, type[StrictArguments]]] = [
         (
             LATEST,
@@ -54,7 +56,7 @@ def definitions() -> list[FunctionToolParam]:
             TreasurySpreadArguments,
         ),
     ]
-    return [
+    tools: list[FunctionToolParam] = [
         {
             "type": "function",
             "name": name,
@@ -64,6 +66,26 @@ def definitions() -> list[FunctionToolParam]:
         }
         for name, description, arguments in specifications
     ]
+    # Strict decoding can select server-issued tokens without transcribing opaque text.
+    pending: dict[tuple[date, date], str | None] = {}
+    for item in evidence:
+        if isinstance(item.result, TreasurySpreadPage):
+            page = item.result
+            pending[(page.start, page.end)] = page.next_cursor
+    cursors: list[str | None] = [None]
+    cursors.extend(dict.fromkeys(token for token in pending.values() if token is not None))
+    for tool in tools:
+        if tool["name"] == TREASURY_SPREADS:
+            parameters = tool["parameters"]
+            assert parameters is not None
+            properties = cast(dict[str, Any], parameters["properties"])
+            original = properties["cursor"]
+            properties["cursor"] = {
+                "type": ["string", "null"],
+                "enum": cursors,
+                "description": original["description"],
+            }
+    return tools
 
 
 def unique_json_object(value: str) -> dict[str, Any]:

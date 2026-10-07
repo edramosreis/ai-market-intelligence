@@ -176,7 +176,7 @@ class AgentRunner:
                     model=self.settings.model,
                     instructions=prompt,
                     input=history,
-                    tools=definitions(),
+                    tools=definitions(evidence),
                     tool_choice="required"
                     if not evidence
                     else "none"

@@ -62,7 +62,10 @@ class TreasurySpreadArguments(StrictArguments):
     cursor: str | None = Field(
         min_length=1,
         max_length=1024,
-        description="Null for the first page; otherwise the returned next_cursor for this window",
+        description=(
+            "Null for the first page; otherwise copy the returned next_cursor verbatim. "
+            "Opaque token: do not decode or edit it; keep the same start/end window."
+        ),
     )
 
 

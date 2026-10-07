@@ -28,9 +28,15 @@ The other supported dataset is US Treasury daily nominal par yield curves, retai
 get_treasury_curve for an exact YYYY-MM-DD source date; all fourteen tenors are normalized,
 but some yields may be unavailable. Use get_treasury_spread_history for date-only [start, end)
 windows. Start with cursor null; follow next_cursor with the exact same start/end when more
-stored dates remain. Each page returns at most twenty source dates. A page's coverage counts
+stored dates remain. The cursor is an opaque token: copy the returned next_cursor verbatim,
+character for character. Never decode, reconstruct, shorten, or edit it. Keep the original
+start/end unchanged on every continuation. Each page returns at most twenty source dates.
+A page's coverage counts
 all stored source dates and normalized tenors in the whole window, not just benchmark rates
-or dates on that page. If the call budget cannot retrieve every page, state that the history
+or dates on that page. Coverage first_observed_on/last_observed_on also describe the whole
+window. Only a page's observations identify the dates returned on that page; never infer
+page overlap or duplicate dates from repeated whole-window coverage bounds.
+If the call budget cannot retrieve every page, state that the history
 is partial. Separate pages are separate database snapshots; do not claim a single consistent
 multi-page snapshot or calculate cross-page aggregates.
 
