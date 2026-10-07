@@ -426,9 +426,13 @@ or ingestion actions are exposed. Missing funding hours withhold full-window met
 missing or stale latest funding/OI stop with source-specific explanations and exact
 evidence. OI retains local receipt time, identity, BTC units and distinct USDT context
 prices/USDC collateral. No model selection, additional paid calls, scheduling, historical
-OI substitution or cross-domain calculation is introduced. All 348 unit tests, Ruff and
-strict mypy over 76 files pass; PostgreSQL agent verification and manual live prose
-acceptance remain pending. The persistent agent remains disabled.
+OI substitution or cross-domain calculation is introduced. All 589 deterministic tests
+(348 unit / 241 integration), Ruff and strict mypy over 77 files pass. Simulated model
+requests execute actual reader queries through HTTP; evidence matches the shared API,
+reader connections are released during model waits, reads preserve fact/audit counts,
+and collected results survive later funding corrections or OI receipts. These tests
+establish dispatch/evidence behavior, not arbitrary prose factuality. Manual live prose
+acceptance remains pending. The persistent agent remains disabled.
 
 Live data acceptance on 2026-10-07 retained 24,253 exact funding events across 34
 successful window reads, plus one OI receipt. January 2024's 744 events/rates/premiums
