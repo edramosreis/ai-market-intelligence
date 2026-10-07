@@ -402,4 +402,21 @@ windows survive later failures. Catalogs are SELECT-only, funding/audit tables a
 writer INSERT/UPDATE, and OI facts allow INSERT only. Reader grants remain SELECT-only.
 The persistence checkpoint passes 519 tests on isolated PostgreSQL, including clean
 migrations, compatibility, replay/corrections, failures, atomicity, gaps, and locks.
-Read-only query/API work follows this checkpoint.
+`hyperliquid/queries.py` exposes shared reader queries through five funding/OI HTTP
+routes. Read-only repeatable snapshots cover contract metadata, coverage, page rows,
+and calculations. Funding uses half-open complete UTC-hour windows, exact source
+timestamps and a separately derived settlement grid. Gaps withhold full-window rate
+sums/means; rate sum is arithmetic, without compounding or a position/notional path.
+Evidence keeps signed fraction units and distinct materialization provenance. Latest
+funding age uses the event timestamp, with a configurable two-hour default threshold.
+
+OI ranges use local receipt timestamps, snapshot identities, and observed counts,
+without inventing an exchange timestamp or an expected collection calendar. Latest OI
+age uses receipt time, with a configurable one-hour default threshold. Pagination binds
+source/instrument/dataset/window and uses exact event time for funding or receipt time
+plus UUID for OI ties. Coverage describes the whole window; separate pages remain
+separate snapshots. Decimal JSON values are strings. The query/API checkpoint passes
+541 isolated tests, Ruff and strict mypy, including hand-calculated metrics, no-data/gaps,
+bounded missing ranges, OI ties, HTTP failures and concurrent-correction snapshots.
+Hyperliquid agent tool integration remains a later checkpoint; the current four-tool
+BTC/Treasury contract and disabled persistent agent remain unchanged.

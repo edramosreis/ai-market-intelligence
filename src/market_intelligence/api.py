@@ -24,6 +24,14 @@ from market_intelligence.agent.runner import AgentRunner
 from market_intelligence.agent.tools import MarketTools
 from market_intelligence.config import AgentSettings, ApiSettings, DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
+from market_intelligence.hyperliquid.queries import HyperliquidQueries
+from market_intelligence.hyperliquid.query_models import (
+    FundingLatest,
+    FundingPage,
+    FundingSummary,
+    OpenInterestLatest,
+    OpenInterestPage,
+)
 from market_intelligence.ingestion.models import parse_instant, utc_now
 from market_intelligence.queries.models import (
     CandlePage,
@@ -97,6 +105,13 @@ def get_treasury_queries(request: Request) -> TreasuryQueries:
 TreasuryReads = Annotated[TreasuryQueries, Depends(get_treasury_queries)]
 
 
+def get_hyperliquid_queries(request: Request) -> HyperliquidQueries:
+    return cast(HyperliquidQueries, request.app.state.hyperliquid_queries)
+
+
+HyperliquidReads = Annotated[HyperliquidQueries, Depends(get_hyperliquid_queries)]
+
+
 def get_agent(request: Request) -> AgentRunner:
     return cast(AgentRunner, request.app.state.agent_runner)
 
@@ -131,6 +146,7 @@ def create_app(
             active_engine = create_db_engine(settings, DatabaseRole.READ)
         app.state.market_queries = MarketQueries(active_engine, api_settings, now)
         app.state.treasury_queries = TreasuryQueries(active_engine, api_settings, now)
+        app.state.hyperliquid_queries = HyperliquidQueries(active_engine, api_settings, now)
         active_client = model_client
         owns_client = False
         try:
@@ -241,6 +257,38 @@ def create_app(
         cursor: Annotated[str | None, Query(max_length=1024)] = None,
     ) -> TreasuryCurvePage:
         return queries.curve_page(treasury_date(start), treasury_date(end), limit, cursor)
+
+    @app.get("/v1/hyperliquid/funding/latest", response_model=FundingLatest)
+    def funding_latest(queries: HyperliquidReads) -> FundingLatest:
+        return queries.latest_funding()
+
+    @app.get("/v1/hyperliquid/funding", response_model=FundingPage)
+    def funding_history(
+        start: str,
+        end: str,
+        queries: HyperliquidReads,
+        limit: Annotated[int, Query(ge=1, le=500)] = 200,
+        cursor: Annotated[str | None, Query(max_length=1024)] = None,
+    ) -> FundingPage:
+        return queries.funding_page(window_instant(start), window_instant(end), limit, cursor)
+
+    @app.get("/v1/hyperliquid/funding/summary", response_model=FundingSummary)
+    def funding_summary(start: str, end: str, queries: HyperliquidReads) -> FundingSummary:
+        return queries.funding_summary(window_instant(start), window_instant(end))
+
+    @app.get("/v1/hyperliquid/open-interest/latest", response_model=OpenInterestLatest)
+    def open_interest_latest(queries: HyperliquidReads) -> OpenInterestLatest:
+        return queries.latest_open_interest()
+
+    @app.get("/v1/hyperliquid/open-interest", response_model=OpenInterestPage)
+    def open_interest_history(
+        start: str,
+        end: str,
+        queries: HyperliquidReads,
+        limit: Annotated[int, Query(ge=1, le=500)] = 200,
+        cursor: Annotated[str | None, Query(max_length=1024)] = None,
+    ) -> OpenInterestPage:
+        return queries.open_interest_page(window_instant(start), window_instant(end), limit, cursor)
 
     @app.post("/v1/agent/query", response_model=AgentResult)
     def agent_query(question: AgentQuestion, runner: Agent, response: Response) -> AgentResult:

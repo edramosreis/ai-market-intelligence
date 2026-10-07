@@ -355,7 +355,7 @@ If a job reports database failure, confirm Docker is running, inspect service he
 
 Never commit `.env`, keys, dumps, local datasets, private prompts, or secret-bearing logs. Docker context excludes secrets, environments, datasets, caches, and Git history; images copy selected files and run application commands as a non-root user. Avoid displaying resolved Compose configuration because it contains passwords; use `config --quiet`. Commit small, coherent changes as they are made, after appropriate checks and staged-diff review. Pushes, pull requests, and merges require authorization; see `AGENTS.md` for the local workflow.
 
-## Hyperliquid provider checkpoint
+## Hyperliquid funding and forward open interest
 
 `hyperliquid/` reads BTC perpetual settled funding and current open interest from the
 [public Info API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals).
@@ -411,6 +411,41 @@ a 30-second budget. `--refresh --resume` is rejected. Each job records a running
 fetches without an open write transaction, then commits facts and success atomically;
 sanitized failure audits are separate. No scheduler is started.
 
-All 519 isolated tests pass at this persistence checkpoint, including migration
-compatibility, replay, gaps, rollback, grants, and writer exclusion. The reader API is
-the next checkpoint.
+The reader API uses the same reader role and repeatable snapshots as the existing
+datasets. Five routes expose the fixed BTC perpetual:
+
+| Route | Evidence |
+| --- | --- |
+| `/v1/hyperliquid/funding/latest` | Latest stored event and source-event age |
+| `/v1/hyperliquid/funding?start=...&end=...` | Exact events, whole-window hour coverage, gaps, and continuation |
+| `/v1/hyperliquid/funding/summary?start=...&end=...` | Arithmetic sum/mean of settled fractions when all hours are present |
+| `/v1/hyperliquid/open-interest/latest` | Latest stored receipt and receipt age |
+| `/v1/hyperliquid/open-interest?start=...&end=...` | Collected receipts with deterministic time/identity pagination |
+
+Funding ranges use half-open complete UTC-hour windows. A derived hour grid measures
+stored settlements; missing hours withhold full-window metrics. Rate sum is an arithmetic
+sum without compounding or a trader's position/notional path. The mean rounds to 18
+decimal places, half even. Missing ranges coalesce and truncate after 50 ranges. OI
+windows use actual local receipt times and expose observed snapshot counts, without an
+expected collection calendar or inferred historical completeness. Mark/oracle context
+prices remain separate from traded prices. Decimal values serialize as strings.
+Continuations bind to the source/instrument/dataset/window, preserving exact funding
+milliseconds and breaking OI receipt-time ties with snapshot identity. Each page is a
+separate snapshot; its coverage describes the whole requested window.
+
+`API_FUNDING_STALE_AFTER_SECONDS` defaults to 7200; `API_OPEN_INTEREST_STALE_AFTER_SECONDS`
+defaults to 3600. These configured age thresholds do not imply scheduled refreshes.
+`API_MAX_WINDOW_DAYS` also bounds these routes. Rebuild/start the API after migration:
+
+```powershell
+docker compose up -d --wait api
+.venv\Scripts\python.exe scripts/check_hyperliquid_api.py
+```
+
+The opt-in reader check compares January 2024 funding HTTP pages and rate sums with
+a fresh public source read, and independently matches the latest OI HTTP receipt to
+reader SQL. It requires the funding sample and one OI collection already stored.
+All 541 isolated tests pass, including migrations, grants, replay, gaps, rollback,
+query arithmetic, HTTP serialization, cursor binding, OI ties, and concurrent snapshots.
+The existing four BTC/Treasury agent tools remain the current agent integration;
+Hyperliquid tool selection and separately authorized live acceptance are a later checkpoint.

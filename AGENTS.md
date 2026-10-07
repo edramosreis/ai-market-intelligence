@@ -33,6 +33,7 @@ Run from the repository root; full installation instructions are in `README.md`.
 - `.venv\Scripts\python.exe scripts/check_coinbase_live.py`: opt-in public API samples from 2020/2024; no database access.
 - `.venv\Scripts\python.exe scripts/check_treasury_live.py`: opt-in public Treasury monthly samples from 1990/2020/2024; no keys, database access, or model calls.
 - `.venv\Scripts\python.exe scripts/check_hyperliquid_live.py`: opt-in public BTC perpetual funding/context samples; no keys, database, paid archives, or model calls.
+- `.venv\Scripts\python.exe scripts/check_hyperliquid_api.py`: opt-in funding HTTP/source parity and stored OI receipt checks with reader credentials; no writes or model calls.
 - `.venv\Scripts\python.exe scripts/check_treasury_api.py`: opt-in stored HTTP pagination/rates/spreads versus fresh 1990/2020/2024 samples; requires API/backfill, performs no writes or model calls.
 - `docker compose run --rm ingest ingest-treasury --start 2024-01-01 --end 2024-02-01`: load/replay one Treasury month.
 - `docker compose run --rm ingest ingest-treasury --resume`: backfill from 1990; reuse successful historical feed reads and refetch the current month.
@@ -82,7 +83,7 @@ Agent tests use the real OpenAI SDK with an injected in-memory HTTP transport, n
 
 ## Commit & Pull Request Guidelines
 
-Hyperliquid revision `0003` has a dedicated perpetual catalog, funding facts/window audits, and immutable OI receipts/collection audits. Preserve exact event milliseconds and one settlement per derived UTC hour. Funding corrections update current values; unchanged provenance and omitted facts remain intact. Shifted source event identity in a stored hour fails for inspection. Resume requires a complete latest successful historical read and matching stored counts; refetch gaps/latest failures and the current month. Keep writer exclusion independent by job type and commit facts/success counts atomically after HTTP. Reader grants remain SELECT-only; OI facts are INSERT-only for the writer. Tests use only isolated PostgreSQL and synthetic provider responses.
+Hyperliquid revision `0003` has a dedicated perpetual catalog, funding facts/window audits, and immutable OI receipts/collection audits. Preserve exact event milliseconds and one settlement per derived UTC hour. Funding corrections update current values; unchanged provenance and omitted facts remain intact. Shifted source event identity in a stored hour fails for inspection. Resume requires a complete latest successful historical read and matching stored counts; refetch gaps/latest failures and the current month. Keep writer exclusion independent by job type and commit facts/success counts atomically after HTTP. Reader grants remain SELECT-only; OI facts are INSERT-only for the writer. Reader queries use read-only repeatable snapshots, Decimal strings, half-open UTC windows and dataset-bound keyset cursors; OI ties use receipt time plus identity. Funding gaps withhold full-window sums; OI counts describe observed receipts, never historical calendar completeness. Distinguish age thresholds from scheduling. Tests use only isolated PostgreSQL and synthetic provider responses.
 
 Use concise, imperative commit subjects, such as `Add initial data ingestion module`. Keep commits focused.
 
