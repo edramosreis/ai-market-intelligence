@@ -180,7 +180,23 @@ Treasury yields are nominal percentages; 10Y-minus-2Y spreads are signed percent
 
 Hyperliquid funding remains signed hourly fractions; positive rates mean longs pay shorts. The summary returns an arithmetic rate sum, its percent representation, and a rounded mean; missing settlement hours withhold these metrics. No annualization, compounding, position PnL, or historical revision reconstruction is supplied. OI is a stored local receipt in BTC with mark/oracle prices in USDT. It has no source event timestamp or historical hourly completeness. USDT denomination remains distinct from USDC collateral/settlement. Stale latest funding/OI and absent/gapped funding produce source-specific server-written limitations with evidence, without another model request. No agent tool collects data or answers historical OI from a current receipt.
 
-Hyperliquid agent integration verification on **2026-10-07**: **589 deterministic tests** pass (**348 unit / 241 integration**), with Ruff and strict mypy over 77 files. The three new tools execute actual reader queries through the HTTP handler and match the existing funding/OI API evidence and exact SDK outputs. Tests retain signed/zero values, source milliseconds and local OI identities, validate UTC-hour/offset windows, stop on absent/gapped/stale data, enforce shared three-call/four-request and output bounds, and sanitize SQL failures. Fact/audit counts stay unchanged during agent reads. Reader connections are released before model calls; collected evidence survives later funding corrections or new OI receipts. Tests use the real SDK with synthetic in-memory model replies and isolated PostgreSQL, without live source/model calls. Manual live prose acceptance remains pending; earlier live model allowances remain closed.
+Hyperliquid agent integration verification on **2026-10-07**: **589 deterministic tests** pass (**348 unit / 241 integration**), with Ruff and strict mypy over 77 files. The three new tools execute actual reader queries through the HTTP handler and match the existing funding/OI API evidence and exact SDK outputs. Tests retain signed/zero values, source milliseconds and local OI identities, validate UTC-hour/offset windows, stop on absent/gapped/stale data, enforce shared three-call/four-request and output bounds, and sanitize SQL failures. Fact/audit counts stay unchanged during agent reads. Reader connections are released before model calls; collected evidence survives later funding corrections or new OI receipts. Tests use the real SDK with synthetic in-memory model replies and isolated PostgreSQL, without live source/model calls.
+
+Hyperliquid live agent acceptance on **2026-10-08** used `gpt-6-luna`, the actual HTTP handler, and reader-role queries. All nine cases passed exact evidence comparison against the existing HTTP readers and separate manual inspection:
+
+| Case | Inspected behavior |
+| --- | --- |
+| January 2024 funding | 744/744 hours; arithmetic sum 0.0242847281 fraction, 2.42847281%, and exact server-calculated mean; no compounding or PnL claim. |
+| Negative funding hour | [2024-01-15 21:00, 22:00) UTC; signed fraction and percent retained with complete coverage and the funding direction explained. |
+| Gapped funding window | [2024-08-15 12:00, 15:00) UTC; 2/3 hours observed, with full-window metrics unavailable. |
+| Entirely absent funding hour | [2024-08-15 13:00, 14:00) UTC; `no_data`, unavailable metrics, and no substitution of zero. |
+| Stale latest funding | Exact stored event evidence retained; server-written stale limitation requires a manual funding update. |
+| Stale latest OI | Exact receipt evidence retained; server-written stale limitation distinguishes local receipt time from exchange event time. |
+| Three-source history | Coinbase January 1 high/low/volume, Treasury January 2 spread, and Hyperliquid January 1 funding; separate dates/windows, units and coverage within three tools/four requests. |
+| Fresh latest funding | Settled fraction, signed premium, exact source milliseconds, derived UTC hour and age matched evidence. |
+| Fresh latest OI | BTC quantity, USDT context prices, local fetch/receipt times, snapshot identity and age matched evidence; no exchange timestamp or historical completeness was invented. USDC collateral/settlement remained distinct. |
+
+Stale checks preceded one manual recent funding update and one OI collection. The update returned 23 events, inserting 22 and preserving one unchanged; the collection appended one receipt. Final retained counts were 24,275 funding events/35 successful funding audits and two OI receipts/two collection audits. The known August 2024 omission remains unavailable. Every agent case preserved all eight fact/audit table fingerprints, and no reader connection was held during model calls. Existing Coinbase/Treasury values and provenance remained unchanged. No production fixes were needed. The separate batch closed after 16 generation requests with zero unreconciled usage; its conservative token-based estimate was below US$0.023, not a billing invoice. The persistent agent remains disabled. These inspected examples do not guarantee factual prose for arbitrary questions.
 
 The agent is **disabled by default**, returning a sanitized 503 while market endpoints keep working. The initial live demonstration used `gpt-6-luna`; model choice remains configurable and access depends on the account. Configure `OPENAI_MODEL` and your `OPENAI_API_KEY` in the ignored local `.env`, and set `AGENT_ENABLED=true` when deliberately enabling paid requests. Keep the key out of Git and chat. Only the API service receives these variables. Rebuild and recreate it after configuration/code changes:
 
@@ -455,8 +471,8 @@ reader SQL. It requires the funding sample and one OI collection already stored.
 All 541 isolated tests pass, including migrations, grants, replay, gaps, rollback,
 query arithmetic, HTTP serialization, cursor binding, OI ties, and concurrent snapshots.
 The agent now has seven fixed tools: the existing BTC/Treasury tools plus latest
-settled funding, complete-hour funding summaries, and latest stored OI. Hyperliquid
-manual live agent acceptance remains a separate checkpoint.
+settled funding, complete-hour funding summaries, and latest stored OI. The separate
+2026-10-08 live agent acceptance above inspected all three tools and their limitations.
 
 Local acceptance on 2026-10-07 retained 24,253 funding events and distinct derived hours
 from 2024-01-01T00:00:00.151Z through 2026-10-07T13:00:00.058Z across 34 successful

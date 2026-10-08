@@ -431,8 +431,16 @@ OI substitution or cross-domain calculation is introduced. All 589 deterministic
 requests execute actual reader queries through HTTP; evidence matches the shared API,
 reader connections are released during model waits, reads preserve fact/audit counts,
 and collected results survive later funding corrections or OI receipts. These tests
-establish dispatch/evidence behavior, not arbitrary prose factuality. Manual live prose
-acceptance remains pending. The persistent agent remains disabled.
+establish dispatch/evidence behavior, not arbitrary prose factuality. Separate live
+acceptance on 2026-10-08 passed nine cases with exact HTTP-reader evidence comparisons
+and manual prose inspection: complete and negative funding, gap/no-data windows, stale
+latest funding/OI, independent three-source history, and fresh latest funding/OI after
+one-off manual jobs. Native units, event/settlement/receipt times and OI identity matched
+evidence; no PnL, historical OI completeness or cross-domain statistic was invented.
+All eight fact/audit fingerprints stayed unchanged during each agent case, with reader
+connections released before model calls. No production fixes were required. The batch
+is closed and the persistent agent remains disabled. These inspected examples do not
+establish arbitrary prose factuality.
 
 Live data acceptance on 2026-10-07 retained 24,253 exact funding events across 34
 successful window reads, plus one OI receipt. January 2024's 744 events/rates/premiums
