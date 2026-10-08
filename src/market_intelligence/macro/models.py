@@ -28,6 +28,11 @@ class MacroSeries(StrEnum):
     FED_FUNDS = "RIFSPFF_N.M"
 
 
+class MacroProvider(StrEnum):
+    BLS = "bls"
+    FED = "federal_reserve_board"
+
+
 @dataclass(frozen=True)
 class SeriesMetadata:
     provider: str

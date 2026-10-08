@@ -5,6 +5,7 @@ from sqlalchemy import Connection
 
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
+from market_intelligence.db.macro_tables import macro_series  # noqa: F401
 from market_intelligence.db.tables import metadata
 
 config = context.config

@@ -58,6 +58,8 @@ def test_reference_seed_and_schema_match_migrations(connection: Connection) -> N
         "coinbase_exchange",
         "us_treasury",
         "hyperliquid",
+        "bls",
+        "federal_reserve_board",
     }
     assert set(connection.execute(sa.select(assets.c.code)).scalars()) == {"BTC", "USD"}
     market = connection.execute(sa.select(markets)).mappings().one()

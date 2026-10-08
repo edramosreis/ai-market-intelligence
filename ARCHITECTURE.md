@@ -455,8 +455,8 @@ local accepted data path, not universal source retention or arbitrary-model fact
 
 ## 14. Direct monthly macro source contract
 
-Status: **native models and both provider clients implemented; database, jobs, HTTP and
-agent implementation are pending.** Use direct original publishers for three fixed monthly series. This
+Status: **native models, provider clients and macro schema implemented; persistence
+behavior, jobs, HTTP and agent integration follow separately.** Use direct original publishers for three fixed monthly series. This
 contract selects current historical values and locally observed corrections; it does
 not establish retrospective publication or vintage history.
 
@@ -628,6 +628,32 @@ Attribute the Board under its [website terms](https://www.federalreserve.gov/dis
 The provider review does not authorize publishing downloaded datasets.
 
 ### Correction and timing policy
+
+Revision `0004` adds five dedicated tables in `db/macro_tables.py`:
+
+| Table | Grain and purpose |
+| --- | --- |
+| `macro_series` | Fixed publisher/series identities, native units, adjustment and earliest month |
+| `macro_ingestion_runs` | Requested monthly window, lifecycle/counts, local fetch/receipt times and source metadata |
+| `macro_observed_versions` | Publisher/series/month/version: immutable native content with receipt and materialization provenance |
+| `macro_version_footnotes` | Ordered code/text footnotes attached to the same immutable version |
+| `macro_current` | Publisher/series/month: pointer to the current immutable version |
+
+Current values are obtained by joining the pointer to its version. Composite foreign
+keys prevent linking to a different publisher/series/month, so the current value and
+version history cannot diverge through duplicated content. Version one records the
+first locally collected content; subsequent numbers order locally observed changes,
+not publisher releases. First materialization is available from version one; a current
+version's audit provides its local fetch/receipt times. Neither is a publication time.
+
+The catalog is SELECT-only for both restricted roles. The ingestion role receives
+INSERT-only on versions/footnotes, INSERT/UPDATE on current pointers and audits, and no
+DELETE; the reader receives SELECT only. PostgreSQL enforces native month labels, series
+identity, available/missing semantics, finite values, bounded footnotes, monthly windows
+and audit lifecycle/counts. The immutable migration includes independent publisher seeds.
+Thirty-seven new PostgreSQL checks verify constraints, grants, upgrade preservation of
+all existing source facts and agreement with Core metadata; the complete schema
+checkpoint passes 750 tests. Persistence/replay behavior is the next batch.
 
 Later storage separates current facts keyed by provider/series/month from immutable
 locally observed changes and ingestion audits. A replay updates current values or
