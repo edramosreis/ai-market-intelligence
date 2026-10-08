@@ -59,6 +59,23 @@ Useful checks from the repository root:
 
 When adding tooling, document dependency installation, local execution, build, and test commands in `README.md` and this guide.
 
+Install the official Gitleaks 8.30.1 binary after verifying its release checksum;
+Windows x64 uses ignored `.tools/gitleaks.exe`, while other platforms can use `PATH`.
+README records the Windows archive hash and installation steps. Scan available history
+with `.tools\gitleaks.exe git --redact --log-opts="--all" .`. Install the LF-terminated
+`.githooks/pre-commit` into the Git-reported hooks directory separately per clone,
+preserving existing hooks/custom `core.hooksPath`. The hook scans staged changes and
+blocks commits on findings, scanner errors or a missing scanner. No blanket secret
+exceptions are configured. Never print unredacted findings or stage scan reports.
+
+`.github/workflows/ci.yml` uses a pinned checkout, checksum-verified Gitleaks, generated
+ephemeral test credentials and the existing development Docker target. It runs the
+quality commands and isolated PostgreSQL suite above without live-provider checks,
+development data or model keys/calls. `.github/dependabot.yml` schedules reviewed weekly
+uv, action and container updates. GitHub security features and `master` rulesets require
+separate administrator configuration; establish successful remote check runs before
+requiring them. Do not enable paid security products or change visibility implicitly.
+
 ## Coding Style & Naming Conventions
 
 Use descriptive names, four-space indentation, Ruff formatting with a 100-character limit, and strict mypy. Prefer synchronous I/O and SQLAlchemy Core with explicit PostgreSQL behavior over speculative frameworks. Use library URL construction, parameterized values, quoted identifiers, and sanitized errors. Use aware UTC instants and Decimal values; validate timestamp awareness, numeric precision/scale, and candle eligibility before persistence.
