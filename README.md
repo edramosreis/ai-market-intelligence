@@ -10,7 +10,11 @@ The next macro component has a reviewed direct-source contract: BLS monthly CPI 
 unemployment, followed by the Federal Reserve Board's native monthly effective federal
 funds rate. Public source checks verified their observation history and explicit missing
 values. Both native provider clients and domain models are implemented with synthetic
-tests. Persistence, manual ingestion, HTTP queries and agent tools are pending. The
+tests. Migration `0004` adds dedicated macro catalog, receipt audits, immutable observed
+versions/footnotes and current-version pointers. Atomic persistence preserves unchanged
+provenance, appends meaningful value/missing/footnote changes and reports omitted periods
+without removing retained history. Delayed older overlapping receipts are rejected.
+Manual ingestion, HTTP queries and agent tools follow as separate checkpoints. The
 design retains current historical values and corrections observed after local collection;
 it does not establish what was known before collection. See
 [the macro source contract](ARCHITECTURE.md#14-direct-monthly-macro-source-contract).
@@ -26,9 +30,15 @@ preserving native month-end labels, release prepared text and source annotations
 archive is extracted or saved; remote schemas are not loaded. A live 2024 sample through
 each implemented client returned 12 available months per series on 2026-10-08. This
 verifies the provider boundary, not historical publication/vintage coverage.
-All 713 isolated deterministic tests (472 unit / 241 integration), Ruff and strict
-mypy pass, including 124 new native provider/domain cases. No macro database schema,
-ingestion command or HTTP/agent endpoint is added by this checkpoint.
+All 777 isolated deterministic tests (483 unit / 294 integration), Ruff and strict
+mypy pass. This includes 124 native provider/domain cases and 64 new schema/persistence
+cases covering constraints, restricted roles, migration preservation, replay, corrections,
+omissions, independent locks, rollback, delayed receipts and reader snapshot consistency.
+The writer has INSERT-only access to immutable versions/footnotes; current rows reference
+those versions rather than duplicating their content. Local collection times establish
+locally observed states, never retrospective publisher vintages. Revision `0004` was
+verified only in isolated PostgreSQL; apply it before starting the updated reader/API.
+This checkpoint adds no macro ingestion command or HTTP/agent endpoint.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -59,7 +69,7 @@ docker compose run --rm migrate
 docker compose run --rm check
 ```
 
-Expected final output: `Database ready: revision=0001, markets=1, role=read`.
+Expected final output: `Database ready: revision=0004, markets=1, role=read`.
 
 `init-db` provisions restricted roles, applies Alembic revisions, and installs grants. Rerunning it does not duplicate reference data and applies current ingestion/reader passwords. Changing the administrator password in `.env` does **not** rotate an already initialized volume's password. Use this bootstrap only for the project's dedicated local database.
 

@@ -16,7 +16,11 @@ The reviewed macro direction is direct BLS `CUSR0000SA0` CPI and `LNS14000000`
 unemployment, then Federal Reserve Board H.15 `RIFSPFF_N.M` monthly effective federal
 funds rates. Section 14 of `ARCHITECTURE.md` records verified source boundaries.
 The two provider clients and native models in `macro/` are implemented with synthetic
-tests; database, jobs, reader/API and agent integration are pending. `bls.py` reads the
+tests. Revision `0004` adds dedicated macro catalog, receipt audits, immutable versions
+and footnotes, and current-version pointers. `db/macro_store.py` atomically persists
+initial states and changed content, preserves unchanged provenance, reports retained
+omissions and rejects delayed older overlapping receipts. Jobs, reader/API and agent
+integration remain pending. `bls.py` reads the
 two fixed series through keyless v1; `fed.py` reads only the selected monthly series
 from bounded full-release ZIP/XML, without extraction or remote schema loading.
 Preserve monthly periods, native index/percent units,
@@ -28,8 +32,17 @@ history plus immutable changes observed locally after collection, with no retros
 historical-vintage claim. Do not implement a FRED dependency, silently replace native
 monthly rates with daily averages, or depend on retiring DDP custom/preformatted routes.
 
-The macro provider checkpoint passes 713 isolated tests (472 unit / 241 integration),
-Ruff and strict mypy. Keep strict requested-ID matching, duplicate JSON rejection,
+The macro storage checkpoint passes 777 isolated tests (483 unit / 294 integration),
+Ruff and strict mypy. Catalogs are SELECT-only, versions/footnotes INSERT-only for the
+writer, and current pointers/audits INSERT/UPDATE with no DELETE. Preserve content and
+ordered source footnotes in immutable versions; numeric formatting, footnote ordering,
+BLS latest hints and Fed prepared/series metadata alone do not create a new version.
+Separate audit receipts still record replays. Versions, footnotes, current pointers and
+successful counts commit together; controlled failure audits use a separate transaction.
+Keep independent provider write locks and stale-receipt protection even after an
+unchanged replay. An omitted period stays retained without fresh confirmation. Apply
+revision 0004 before starting the updated reader/API; this checkpoint applied it only
+in isolated tests. Keep strict requested-ID matching, duplicate JSON rejection,
 ten-inclusive-year BLS requests and validated/counted annual exclusions. Validate all
 Fed selected rows before window filtering and consume the complete data XML, including
 content after the selected series. Enforce compressed/decompressed/archive/work bounds,

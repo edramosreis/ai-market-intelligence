@@ -256,7 +256,7 @@ def test_macro_least_privilege_and_immutable_version_grants(
 ) -> None:
     engine = create_db_engine(database_settings, role)
     try:
-        with engine.connect() as conn, conn.begin():
+        with engine.connect() as conn, conn.begin() as transaction:
             for table in (
                 macro_series,
                 macro_ingestion_runs,
@@ -300,5 +300,6 @@ def test_macro_least_privilege_and_immutable_version_grants(
                         status="failed", finished_at=NOW, error_code="http_error"
                     )
                 )
+            transaction.rollback()
     finally:
         engine.dispose()

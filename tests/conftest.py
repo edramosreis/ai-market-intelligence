@@ -10,6 +10,13 @@ from market_intelligence.cli import initialize_database
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.hyperliquid_store import HyperliquidStore
+from market_intelligence.db.macro_store import MacroStore
+from market_intelligence.db.macro_tables import (
+    macro_current,
+    macro_ingestion_runs,
+    macro_observed_versions,
+    macro_version_footnotes,
+)
 from market_intelligence.db.tables import (
     funding_events,
     funding_ingestion_runs,
@@ -87,5 +94,22 @@ def hyperliquid_store(
                 funding_ingestion_runs,
                 open_interest_snapshots,
                 open_interest_runs,
+            ):
+                conn.execute(table.delete())
+
+
+@pytest.fixture
+def macro_store(database_settings: DatabaseSettings, admin_engine: Engine) -> Iterator[MacroStore]:
+    engine = create_db_engine(database_settings, DatabaseRole.INGEST)
+    try:
+        yield MacroStore(engine)
+    finally:
+        engine.dispose()
+        with admin_engine.begin() as conn:
+            for table in (
+                macro_current,
+                macro_version_footnotes,
+                macro_observed_versions,
+                macro_ingestion_runs,
             ):
                 conn.execute(table.delete())

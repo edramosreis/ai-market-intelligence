@@ -455,8 +455,9 @@ local accepted data path, not universal source retention or arbitrary-model fact
 
 ## 14. Direct monthly macro source contract
 
-Status: **native models, provider clients and macro schema implemented; persistence
-behavior, jobs, HTTP and agent integration follow separately.** Use direct original publishers for three fixed monthly series. This
+Status: **native models, provider clients, macro schema and atomic persistence
+implemented; jobs, HTTP and agent integration follow separately.** Use direct original
+publishers for three fixed monthly series. This
 contract selects current historical values and locally observed corrections; it does
 not establish retrospective publication or vintage history.
 
@@ -491,8 +492,9 @@ flowchart TD
     Transport --> Sources[BLS v1 and Federal Reserve Board H.15]
     Sources --> Validate[Strict native JSON and complete safe data XML validation]
     Validate --> Contract[macro/models.py: monthly observations and local receipt evidence]
-    Contract -. planned .-> Current[(Current monthly facts)]
-    Contract -. planned .-> Revisions[(Locally observed changes and ingestion audits)]
+    Contract --> Store[db/macro_store.py: compare and commit atomically]
+    Store --> Current[(macro_current: version pointers)]
+    Store --> Revisions[(Immutable versions, footnotes and receipt audits)]
     Current -. planned .-> Reader[Read-only snapshots and explicit coverage]
     Revisions -. planned .-> Reader
     Reader -. planned .-> API[HTTP queries and later reviewed agent tools]
@@ -539,8 +541,8 @@ downloaded data in memory.
 The checkpoint passed 713 isolated deterministic tests (472 unit / 241 integration),
 including 124 new provider/domain cases, plus Ruff and strict mypy. Separate live 2024
 reads through both production clients returned twelve available months for each fixed
-series on 2026-10-08. Schema, correction persistence, manual jobs, coverage queries/API
-and agent tools remain later checkpoints.
+series on 2026-10-08. The subsequent storage checkpoint is described below; manual jobs,
+coverage queries/API and agent tools remain pending.
 
 ### BLS transport and source evidence
 
@@ -652,17 +654,63 @@ DELETE; the reader receives SELECT only. PostgreSQL enforces native month labels
 identity, available/missing semantics, finite values, bounded footnotes, monthly windows
 and audit lifecycle/counts. The immutable migration includes independent publisher seeds.
 Thirty-seven new PostgreSQL checks verify constraints, grants, upgrade preservation of
-all existing source facts and agreement with Core metadata; the complete schema
-checkpoint passes 750 tests. Persistence/replay behavior is the next batch.
+all existing source facts and agreement with Core metadata.
 
-Later storage separates current facts keyed by provider/series/month from immutable
-locally observed changes and ingestion audits. A replay updates current values or
-footnotes only when their meaningful content changes, retains the prior content as a
-locally observed version, and preserves unchanged materialization provenance. An omitted
-period remains retained and is reported without claiming fresh source confirmation.
-Successful facts, observed changes and audit counts commit atomically after HTTP;
-reader access remains read-only. Exact schema, replay/resume and query boundaries are
-the next implementation checkpoints.
+`db/macro_store.py` accepts a validated `ProviderRead` after HTTP completes. A short
+transaction creates a running audit first. Persistence acquires a transaction-scoped
+provider lock, checks the running audit/window/times and rejects a receipt older than
+any successful overlapping read. This protects current data even when the newer read
+was unchanged or omitted stored periods. Non-overlapping windows remain independent;
+BLS and Fed use separate locks. These are local ordering guards, not publisher revision
+times or job scheduling.
+
+An initial observation creates version one; a meaningful value, missing reason or
+footnote code/text change appends a new version and moves the current pointer. Decimal
+formatting and footnote order alone are unchanged content. The original footnote order
+is retained in each version. BLS latest hints and Fed prepared text/series annotations
+stay on their receipt audits, so changed response metadata alone does not create an
+observation version. An identical replay preserves the original version/materialization
+provenance but records its own local fetch/receipt audit. Omitted stored periods remain
+retained and are reported as exact series/month pairs without fresh source confirmation.
+
+Versions, footnotes, current pointers and successful audit counts commit atomically. A
+storage failure rolls them all back, leaving the separately started audit running; the
+caller can record a controlled failure in a separate transaction. Sanitized codes never
+contain SQL, credentials or provider payloads. Macro jobs will own that orchestration
+and failure handling; no CLI ingestion or resume policy is introduced here.
+
+```mermaid
+sequenceDiagram
+    participant Job as Future manual job
+    participant Source as BLS or Fed client
+    participant Store as MacroStore
+    participant DB as PostgreSQL
+    Job->>Store: start_run(provider, window, local start)
+    Store->>DB: Commit running audit
+    Job->>Source: Read and validate native monthly content
+    Source-->>Job: ProviderRead with local fetch/receipt times
+    Job->>Store: persist(run, provider, read, local finish)
+    Store->>DB: BEGIN; provider lock; audit and stale-receipt checks
+    Store->>DB: Compare current content; append changed versions and notes
+    Store->>DB: Move current pointers; finish successful audit
+    alt All operations succeed
+        Store->>DB: COMMIT facts, versions and counts together
+        Store-->>Job: Exact write/retained-period report
+    else Validation, ordering or database failure
+        Store->>DB: ROLLBACK persistence transaction
+        Store-->>Job: Controlled error
+        Job->>Store: fail_run with controlled code
+        Store->>DB: Commit separate failure audit
+    end
+```
+
+The storage checkpoint adds 27 persistence cases (11 unit / 16 PostgreSQL) for exact
+values, dash/zero distinctions, unchanged provenance, successive corrections, omitted
+periods, receipt metadata, independent locks, stale reads, atomic rollback, controlled
+failures and reader snapshot consistency. The complete suite passes 777 deterministic
+tests (483 unit / 294 integration), plus Ruff and strict mypy. Revision 0004 is applied
+only in isolated tests at this checkpoint; development migration, jobs/backfill and
+reader/API integration remain pending.
 
 A locally observed correction means that a changed value was received at a known local
 time. It does not establish when the publisher changed the value, which releases were
