@@ -6,6 +6,14 @@ A market research platform being built to collect historical data, produce repro
 
 Treasury ingestion, read-only curve queries, and agent tools are also implemented: daily nominal par yields with native dates, exact percentage values, explicit missing reasons, and current-value provenance. Deterministic agent tests and a separately inspected live acceptance batch verify curves, paginated spreads, mixed-source evidence, and controlled limitations.
 
+The next macro component has a reviewed direct-source contract: BLS monthly CPI and
+unemployment, followed by the Federal Reserve Board's native monthly effective federal
+funds rate. Public source checks verified their observation history and explicit missing
+values. Provider clients, persistence, HTTP queries and agent tools are pending. The
+design retains current historical values and corrections observed after local collection;
+it does not establish what was known before collection. See
+[the macro source contract](ARCHITECTURE.md#14-direct-monthly-macro-source-contract).
+
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): reviewed design, semantics, trade-offs, and full Milestone 1 acceptance criteria.

@@ -12,6 +12,18 @@ The Hyperliquid component in `hyperliquid/` reads fixed native BTC perpetual fun
 
 The contract is Coinbase Exchange spot BTC/USD, completed five-minute candles, retained history initially from 2020-01-01, and configurable earlier dates. Milestone 1's local vertical slice is implemented and verified; README records deterministic tests and separately inspected live-agent checks. Review `ARCHITECTURE.md` before continuing. Local planning is kept in ignored `.private/ROADMAP.md`, outside Git and Docker context. Continue consulting and updating it as work progresses, without staging or publishing it; if absent, discuss future scope before implementing later components. Local live-test authorization, account readiness, and cumulative usage are recorded in `.private/AGENT_ACCEPTANCE.md`, `.private/TREASURY_AGENT_ACCEPTANCE.md`, `.private/HYPERLIQUID_AGENT_ACCEPTANCE.md`, and their separate ignored ledgers. Consult them before paid checks, preserve usage across attempts, and do not treat request limits as a monetary cap. Completing a live check does not authorize additional spending. Material source, data-model, technology, or direction changes require discussion; minor choices stay within the reviewed design.
 
+The reviewed macro direction is direct BLS `CUSR0000SA0` CPI and `LNS14000000`
+unemployment, then Federal Reserve Board H.15 `RIFSPFF_N.M` monthly effective federal
+funds rates. Section 14 of `ARCHITECTURE.md` records verified source boundaries;
+implementation is pending. Preserve monthly periods, native index/percent units,
+seasonal-adjustment metadata, missing markers and source footnotes. BLS `M13` is an
+annual average, not a month; `latest` is a response hint, not a release timestamp.
+Fed XML uses month-end labels and includes a timezone-free prepared time. Neither
+establishes per-observation publication time. The approved correction policy is current
+history plus immutable changes observed locally after collection, with no retrospective
+historical-vintage claim. Do not implement a FRED dependency, silently replace native
+monthly rates with daily averages, or depend on retiring DDP custom/preformatted routes.
+
 ## Build, Test, and Development Commands
 
 Run from the repository root; full installation instructions are in `README.md`.

@@ -452,3 +452,150 @@ though the source reads succeeded. Existing Coinbase/Treasury values and provena
 matched pre-migration fingerprints. Runtime migration/API checks passed with the agent
 disabled and without model calls or archive access. These observations establish this
 local accepted data path, not universal source retention or arbitrary-model factuality.
+
+## 14. Direct monthly macro source contract
+
+Status: **source review complete; provider, database, HTTP and agent implementation
+are pending.** Use direct original publishers for three fixed monthly series. This
+contract selects current historical values and locally observed corrections; it does
+not establish retrospective publication or vintage history.
+
+| Provider and native series | Observation | Native unit | Adjustment |
+| --- | --- | --- | --- |
+| BLS `CUSR0000SA0` | CPI-U, all items, US city average | Index, 1982–84=100 | Seasonally adjusted |
+| BLS `LNS14000000` | Civilian unemployment rate, age 16 and over | Percent | Seasonally adjusted |
+| Federal Reserve Board H.15 `RIFSPFF_N.M` | Monthly effective federal funds rate | Percent per annum | Not seasonally adjusted |
+
+BLS's [CPI series convention](https://www.bls.gov/cpi/factsheets/cpi-series-ids.htm)
+identifies population, adjustment, area and item codes. Its
+[unemployment history](https://www.bls.gov/cps/prev_yrs.htm) identifies the monthly
+seasonally adjusted series from 1948. Direct reads of the
+[CPI catalog](https://download.bls.gov/pub/time.series/cu/cu.series) and
+[labor-force catalog](https://download.bls.gov/pub/time.series/ln/ln.series) independently
+confirmed the fixed series, adjustment, CPI base period and native history bounds.
+The Board's
+[official crosswalk](https://www.federalreserve.gov/data/documents/DDP-FRED%20Data%20Series%20Crosswalk.csv)
+maps `H15,RIFSPFF_N.M,FEDFUNDS`; this identifies the monthly effective rate, without
+introducing a FRED data dependency. The
+[H.15 footnotes](https://www.federalreserve.gov/releases/h15/) define the monthly
+rate using every calendar day, and describe the March 2016 change in the underlying
+daily EFFR methodology. Ingest the published monthly values; do not replace them with
+a business-day mean, a policy target rate, or a Treasury yield.
+
+```mermaid
+flowchart TD
+    BLS[BLS v1: fixed CPI and unemployment IDs] --> Samples[Verified bounded source reads]
+    Fed[Fed H.15 full-release XML: fixed monthly rate] --> Samples
+    Samples --> Contract[Monthly identity, units, missing markers and footnotes]
+    Contract -. next .-> Clients[Separate bounded provider clients and synthetic tests]
+    Clients -. planned .-> Current[(Current monthly facts)]
+    Clients -. planned .-> Revisions[(Locally observed changes and ingestion audits)]
+    Current -. planned .-> Reader[Read-only snapshots and explicit coverage]
+    Revisions -. planned .-> Reader
+    Reader -. planned .-> API[HTTP queries and later reviewed agent tools]
+    Limits[No historical release or vintage claim] -. constrains .-> Reader
+```
+
+### BLS transport and source evidence
+
+The [unregistered v1 API](https://www.bls.gov/developers/api_signature.htm) accepts
+year-bounded POST requests for up to ten inclusive years. No API key is required for
+this boundary. Fixed requests contain only the two selected IDs and start/end years,
+without provider-side transformations. On 2026-10-08, eight sequential requests covering
+1947–2026 returned these native monthly labels:
+
+| Series | First month | Latest returned month | Returned months | Available values |
+| --- | --- | --- | ---: | ---: |
+| `CUSR0000SA0` | 1947-01 | 2026-08 | 956 | 955 |
+| `LNS14000000` | 1948-01 | 2026-09 | 945 | 944 |
+
+Both spans had consecutive month labels, with one explicitly unavailable October 2025
+value (`-`) and a source footnote. These are observed source results, not an assurance
+of future availability. Additional one-year reads verified the 1946/1947 boundaries,
+1990, 2020, 2024 and current-year samples. An HTTP 200 and `REQUEST_SUCCEEDED` can still
+include no-data messages or unavailable values. Keep those distinct from an empty,
+absent series, transport failure or malformed response. The live envelope used a
+`Results` object; parsing must not assume a response is valid from its success status
+alone.
+
+Retain `year`/`M01`–`M12` as the observation month, exact Decimal values, and footnote
+code/text. Empty footnote objects mean no supplied footnote. Optional `latest="true"`
+marks the latest observation in that response; it is not publication metadata and
+should not make unchanged historical values count as corrections. Exclude documented
+annual `M13` observations explicitly, with an audit count; never turn them into a
+thirteenth month. Unknown periods, duplicate months/series, mismatched IDs, out-of-range
+rows and invalid values fail validation. Preserve the documented
+[missing-value marker](https://www.bls.gov/bls/bls-handling-of-missing-data.htm) and its
+footnotes without zero filling or interpolation. CPI index levels are distinct from
+calculated inflation; any later percent-change calculation requires the exact input
+months and their available values.
+
+BLS's [seasonal-adjustment policy](https://www.bls.gov/cpi/seasonal-adjustment/)
+allows annual revisions to the preceding five years of CPI. A later refresh policy
+must revisit a suitable historical range; replaying only the latest two months would
+not detect those older corrections. Explicit replays remain necessary for changes
+outside the chosen refresh range.
+
+BLS [API terms](https://www.bls.gov/developers/termsOfService.htm) require access-date
+attribution and the notice: “BLS.gov cannot vouch for the data or analyses derived from
+these data after the data have been retrieved from BLS.gov.” Include both in future
+query evidence and documentation; preserve native values and label derived calculations.
+
+### Federal Reserve transport and source evidence
+
+The Board's [download notice](https://www.federalreserve.gov/data/data-download-fred-information.htm)
+says historical XML remains available from statistical release pages after custom
+package removal in November 2026; preformatted packages are also slated for removal.
+Use the full-release XML boundary, not custom series CSV URLs or twelve-month packages.
+The current [H.15 download page](https://www.federalreserve.gov/datadownload/Choose.aspx?rel=H15)
+links the full-release SDMX ZIP at
+`https://www.federalreserve.gov/datadownload/Output.aspx?rel=H15&filetype=zip`.
+This URL worked during the review; recheck the published release link if the download
+location changes as DDP retires. A download location is not a guaranteed permanent API.
+
+The reviewed ZIP contained five members, was 4,284,680 compressed bytes, and included
+a 70,816,775-byte `H15_data.xml`. Its selected series had `FREQ=129`, `INSTRUMENT=FF`,
+`MATURITY=O`, `CURRENCY=NA`, `UNIT=Percent:_Per_Year` and `UNIT_MULT=1`. The complete data
+XML parsed successfully and returned 867 consecutive available monthly values from
+1954-07 through 2026-09, all with `OBS_STATUS=A`. January 1990/2020/2024 values were
+8.23/1.55/5.33 percent. These source checks held all data in memory and made no database
+writes. Only the selected monthly series belongs in the later persistence boundary.
+
+XML `TIME_PERIOD` values are month-end dates (for example `2024-01-31`), whereas BLS
+uses year/month labels. Preserve each native label and normalize a separate month
+identity; month-end is not an observation release timestamp. The header's
+`Prepared=2026-10-07T15:40:04` has no UTC offset and is release-level metadata. Preserve
+it as source text if needed, without assigning UTC or using it as each row's release
+time. Record aware UTC local fetch and receipt times separately.
+
+Bound both compressed HTTP bytes and decompressed XML bytes, archive member counts,
+read deadlines and parsing work. Read only the exact data member without extracting
+archive paths to disk or loading remote XSDs. The companion structure XML contains a
+DOCTYPE declaration and was left unparsed; it is not needed to validate the fixed
+series against this reviewed contract. Reject DTD/entities in the data XML, truncated
+archives/documents, duplicate selected series/months, unexpected native metadata and
+unsupported observation statuses. The selected sample has no missing values; any
+future missing-status handling must be verified against the native contract rather
+than storing the `-9999` sentinel seen in other H.15 series as a real rate.
+
+Attribute the Board under its [website terms](https://www.federalreserve.gov/disclaimer.htm).
+The provider review does not authorize publishing downloaded datasets.
+
+### Correction and timing policy
+
+Later storage separates current facts keyed by provider/series/month from immutable
+locally observed changes and ingestion audits. A replay updates current values or
+footnotes only when their meaningful content changes, retains the prior content as a
+locally observed version, and preserves unchanged materialization provenance. An omitted
+period remains retained and is reported without claiming fresh source confirmation.
+Successful facts, observed changes and audit counts commit atomically after HTTP;
+reader access remains read-only. Exact schema, replay/resume and query boundaries are
+the next implementation checkpoints.
+
+A locally observed correction means that a changed value was received at a known local
+time. It does not establish when the publisher changed the value, which releases were
+missed between collections, or what users knew during earlier years. Month labels,
+footnotes, prepared times and local receipt times cannot answer an unverified historical
+as-of question. No implicit cross-source alignment, forward filling, scheduler or new
+agent tool is introduced by this source review. History defaults will be documented
+with the ingestion contract rather than inherited from Coinbase's 2020 setting.
