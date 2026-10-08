@@ -125,6 +125,7 @@ class MacroWriteReport:
     source_missing: int
     retained_periods: tuple[tuple[MacroSeries, date], ...]
     annual_average_count: int
+    skipped: bool = False
 
     @property
     def retained(self) -> int:

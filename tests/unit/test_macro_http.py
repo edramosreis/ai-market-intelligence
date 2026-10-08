@@ -173,3 +173,40 @@ def test_invalid_http_content_encoding_is_sanitized_without_retry() -> None:
             deadline=100,
         )
     assert calls == 1
+
+
+def test_command_request_budget_counts_retries_and_multiple_fetches() -> None:
+    clock, calls = Clock(), 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503) if calls == 1 else httpx.Response(200, content=b"ok")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        transport = MacroTransport(
+            http,
+            max_requests=2,
+            request_interval=0,
+            monotonic=clock.monotonic,
+            sleep=clock.sleep,
+            jitter=lambda: 0,
+        )
+        assert (
+            transport._request("GET", "https://example.test", max_bytes=20, deadline=100)[0]
+            == b"ok"
+        )
+        with pytest.raises(MacroError, match="^retry_exhausted$"):
+            transport._request("GET", "https://example.test", max_bytes=20, deadline=100)
+    assert calls == transport.requests_used == 2
+
+
+def test_exhausted_request_budget_prevents_retry_sleep_and_request() -> None:
+    clock = Clock()
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(503))) as http:
+        transport = MacroTransport(
+            http, max_requests=1, monotonic=clock.monotonic, sleep=clock.sleep
+        )
+        with pytest.raises(MacroError, match="^retry_exhausted$"):
+            transport._request("GET", "https://example.test", max_bytes=20, deadline=100)
+    assert transport.requests_used == 1 and not clock.sleeps

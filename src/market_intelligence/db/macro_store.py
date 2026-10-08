@@ -23,6 +23,7 @@ from market_intelligence.db.macro_tables import (
 from market_intelligence.db.macro_tables import (
     macro_version_footnotes as notes,
 )
+from market_intelligence.macro.jobs import expected_periods
 from market_intelligence.macro.models import (
     Footnote,
     MacroProvider,
@@ -100,6 +101,63 @@ class MacroStore:
                 )
             )
         return identity
+
+    def completed(self, provider: MacroProvider, window: MonthlyWindow) -> MacroWriteReport | None:
+        validate_window(provider, window)
+        expected = expected_periods(provider, window)
+        with self._transaction() as conn:
+            conn.execute(sa.text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
+            predicate = sa.and_(
+                runs.c.source_code == provider.value,
+                runs.c.requested_start < window.end,
+                runs.c.requested_end > window.start,
+            )
+            if (
+                conn.execute(
+                    sa.select(runs.c.id).where(predicate, runs.c.status == "running").limit(1)
+                ).first()
+                is not None
+            ):
+                return None
+            row = (
+                conn.execute(
+                    sa.select(runs)
+                    .where(predicate)
+                    .order_by(runs.c.finished_at.desc(), runs.c.started_at.desc(), runs.c.id.desc())
+                    .limit(1)
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if (
+                row is None
+                or row["status"] != "succeeded"
+                or row["requested_start"] != window.start
+                or row["requested_end"] != window.end
+                or row["received"] != len(expected)
+                or row["retained"] != 0
+            ):
+                return None
+            stored = self._existing(conn, provider, window)
+            if (
+                set(stored) != expected
+                or sum(item.observation.value is None for item in stored.values())
+                != row["source_missing"]
+            ):
+                return None
+            return MacroWriteReport(
+                row["id"],
+                provider,
+                window,
+                row["received"],
+                row["inserted"],
+                row["corrected"],
+                row["unchanged"],
+                row["source_missing"],
+                (),
+                row["annual_average_count"],
+                skipped=True,
+            )
 
     def fail_run(self, run_id: UUID, code: MacroFailureCode, finished_at: datetime) -> None:
         if not isinstance(code, MacroFailureCode):

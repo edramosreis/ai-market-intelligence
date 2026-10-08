@@ -23,14 +23,20 @@ class MacroTransport:
         sleep: Callable[[float], None] = time.sleep,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         jitter: Callable[[], float] = random.random,
+        max_requests: int | None = None,
     ) -> None:
         if type(attempts) is not int or not 1 <= attempts <= 5:
             raise ValueError("Macro attempts must be between one and five")
         if not math.isfinite(request_interval) or request_interval < 0:
             raise ValueError("Invalid macro request interval")
+        if max_requests is not None and (
+            type(max_requests) is not int or not 1 <= max_requests <= 25
+        ):
+            raise ValueError("Macro request budget must be between one and twenty-five")
         self.client, self.attempts, self.request_interval = client, attempts, request_interval
         self.monotonic, self.sleep, self.now, self.jitter = monotonic, sleep, now, jitter
         self.last_request: float | None = None
+        self.max_requests, self.requests_used = max_requests, 0
 
     def check_deadline(self, deadline: float) -> None:
         if not math.isfinite(deadline):
@@ -67,6 +73,9 @@ class MacroTransport:
     ) -> tuple[bytes, datetime, datetime]:
         self.check_deadline(deadline)
         for attempt in range(self.attempts):
+            if self.max_requests is not None and self.requests_used >= self.max_requests:
+                # Includes retries and preceding fetches through this command's client.
+                raise MacroError(MacroErrorCode.RETRY_EXHAUSTED)
             if self.last_request is not None:
                 self._pause(
                     max(0, self.request_interval - (self.monotonic() - self.last_request)), deadline
@@ -75,6 +84,7 @@ class MacroTransport:
             remaining = deadline - self.monotonic()
             self.last_request = self.monotonic()
             started = utc(self.now())
+            self.requests_used += 1
             retry_after: str | None = None
             try:
                 with self.client.stream(
@@ -101,7 +111,9 @@ class MacroTransport:
                 raise MacroError(MacroErrorCode.INVALID_PAYLOAD) from None
             except httpx.TransportError:
                 self.check_deadline(deadline)
-            if attempt + 1 == self.attempts:
+            if attempt + 1 == self.attempts or (
+                self.max_requests is not None and self.requests_used >= self.max_requests
+            ):
                 raise MacroError(MacroErrorCode.RETRY_EXHAUSTED)
             delay = self._retry_after(retry_after)
             self._pause(
