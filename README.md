@@ -9,10 +9,18 @@ Treasury ingestion, read-only curve queries, and agent tools are also implemente
 The next macro component has a reviewed direct-source contract: BLS monthly CPI and
 unemployment, followed by the Federal Reserve Board's native monthly effective federal
 funds rate. Public source checks verified their observation history and explicit missing
-values. Provider clients, persistence, HTTP queries and agent tools are pending. The
+values. The BLS provider/domain client is implemented with synthetic tests. The separate
+Fed client, persistence, HTTP queries and agent tools are pending. The
 design retains current historical values and corrections observed after local collection;
 it does not establish what was known before collection. See
 [the macro source contract](ARCHITECTURE.md#14-direct-monthly-macro-source-contract).
+
+The opt-in `.venv\Scripts\python.exe scripts/check_bls_live.py --year 2024` checks one
+native year using the keyless API. It performs no database writes, saved downloads or
+model calls; the unregistered BLS API's request quotas apply. Existing locked dependencies
+suffice. Month identity, Decimal values, source-dash missing reasons and footnotes are
+retained; annual averages are excluded and counted. Local fetch/receipt times are not
+publication times.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 

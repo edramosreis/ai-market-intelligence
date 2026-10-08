@@ -14,8 +14,9 @@ The contract is Coinbase Exchange spot BTC/USD, completed five-minute candles, r
 
 The reviewed macro direction is direct BLS `CUSR0000SA0` CPI and `LNS14000000`
 unemployment, then Federal Reserve Board H.15 `RIFSPFF_N.M` monthly effective federal
-funds rates. Section 14 of `ARCHITECTURE.md` records verified source boundaries;
-implementation is pending. Preserve monthly periods, native index/percent units,
+funds rates. Section 14 of `ARCHITECTURE.md` records verified source boundaries.
+The BLS provider/domain boundary in `macro/` is implemented; Fed, database, jobs,
+reader/API and agent integration are pending. Preserve monthly periods, native index/percent units,
 seasonal-adjustment metadata, missing markers and source footnotes. BLS `M13` is an
 annual average, not a month; `latest` is a response hint, not a release timestamp.
 Fed XML uses month-end labels and includes a timezone-free prepared time. Neither
@@ -45,6 +46,7 @@ Run from the repository root; full installation instructions are in `README.md`.
 - `.venv\Scripts\python.exe scripts/check_coinbase_live.py`: opt-in public API samples from 2020/2024; no database access.
 - `.venv\Scripts\python.exe scripts/check_treasury_live.py`: opt-in public Treasury monthly samples from 1990/2020/2024; no keys, database access, or model calls.
 - `.venv\Scripts\python.exe scripts/check_hyperliquid_live.py`: opt-in public BTC perpetual funding/context samples; no keys, database, paid archives, or model calls.
+- `.venv\Scripts\python.exe scripts/check_bls_live.py --year 2024`: opt-in one-year keyless CPI/unemployment source check; no database, saved dataset or model calls. BLS v1 quotas still apply.
 - `.venv\Scripts\python.exe scripts/check_hyperliquid_api.py`: opt-in funding HTTP/source parity and stored OI receipt checks with reader credentials; no writes or model calls.
 - `.venv\Scripts\python.exe scripts/check_treasury_api.py`: opt-in stored HTTP pagination/rates/spreads versus fresh 1990/2020/2024 samples; requires API/backfill, performs no writes or model calls.
 - `docker compose run --rm ingest ingest-treasury --start 2024-01-01 --end 2024-02-01`: load/replay one Treasury month.

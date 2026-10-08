@@ -455,8 +455,8 @@ local accepted data path, not universal source retention or arbitrary-model fact
 
 ## 14. Direct monthly macro source contract
 
-Status: **source review complete; provider, database, HTTP and agent implementation
-are pending.** Use direct original publishers for three fixed monthly series. This
+Status: **BLS provider/domain implemented; Fed provider, database, jobs, HTTP and agent
+implementation are pending.** Use direct original publishers for three fixed monthly series. This
 contract selects current historical values and locally observed corrections; it does
 not establish retrospective publication or vintage history.
 
