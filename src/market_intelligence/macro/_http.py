@@ -97,6 +97,8 @@ class MacroTransport:
                         self.check_deadline(deadline)
                         return bytes(body), started, utc(self.now())
                     retry_after = response.headers.get("retry-after")
+            except httpx.DecodingError:
+                raise MacroError(MacroErrorCode.INVALID_PAYLOAD) from None
             except httpx.TransportError:
                 self.check_deadline(deadline)
             if attempt + 1 == self.attempts:

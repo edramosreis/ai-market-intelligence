@@ -455,8 +455,8 @@ local accepted data path, not universal source retention or arbitrary-model fact
 
 ## 14. Direct monthly macro source contract
 
-Status: **BLS provider/domain implemented; Fed provider, database, jobs, HTTP and agent
-implementation are pending.** Use direct original publishers for three fixed monthly series. This
+Status: **native models and both provider clients implemented; database, jobs, HTTP and
+agent implementation are pending.** Use direct original publishers for three fixed monthly series. This
 contract selects current historical values and locally observed corrections; it does
 not establish retrospective publication or vintage history.
 
@@ -484,17 +484,63 @@ a business-day mean, a policy target rate, or a Treasury yield.
 
 ```mermaid
 flowchart TD
-    BLS[BLS v1: fixed CPI and unemployment IDs] --> Samples[Verified bounded source reads]
-    Fed[Fed H.15 full-release XML: fixed monthly rate] --> Samples
-    Samples --> Contract[Monthly identity, units, missing markers and footnotes]
-    Contract -. next .-> Clients[Separate bounded provider clients and synthetic tests]
-    Clients -. planned .-> Current[(Current monthly facts)]
-    Clients -. planned .-> Revisions[(Locally observed changes and ingestion audits)]
+    Window[macro/models.py: half-open monthly window] --> BLS[macro/bls.py: fixed CPI and unemployment]
+    Window --> Fed[macro/fed.py: full-release ZIP and selected monthly rate]
+    BLS --> Transport[macro/_http.py: bounded streams, pacing, retries and deadlines]
+    Fed --> Transport
+    Transport --> Sources[BLS v1 and Federal Reserve Board H.15]
+    Sources --> Validate[Strict native JSON and complete safe data XML validation]
+    Validate --> Contract[macro/models.py: monthly observations and local receipt evidence]
+    Contract -. planned .-> Current[(Current monthly facts)]
+    Contract -. planned .-> Revisions[(Locally observed changes and ingestion audits)]
     Current -. planned .-> Reader[Read-only snapshots and explicit coverage]
     Revisions -. planned .-> Reader
     Reader -. planned .-> API[HTTP queries and later reviewed agent tools]
     Limits[No historical release or vintage claim] -. constrains .-> Reader
 ```
+
+### Implemented provider boundary
+
+`macro/models.py` fixes the three native identities, units and seasonal metadata.
+`MonthlyWindow` uses half-open month-aligned dates; observations retain a separate
+native period string and exact Decimal value. BLS dash observations carry
+`source_dash`; absent months produce no fabricated observation. `ProviderRead` records
+aware UTC fetch/receipt times, excluded annual-average count, source messages and latest
+hints separately from observations. Fed prepared text and series annotations remain
+release/series metadata. None of these fields establishes per-observation publication
+or retrospective vintage availability.
+
+`macro/bls.py` validates both complete requested year responses before clipping to the
+logical month window. Unknown/duplicate fields, series and periods fail; native M13
+annual averages are validated, excluded and counted. The response hint `latest` does
+not enter monthly fact equality. Empty requested series and bounded source messages
+are retained without a calendar-completeness claim.
+
+`macro/fed.py` accepts at most 20 MB of ZIP bytes, ten distinct root XML/XSD members
+and 100 MB of declared aggregate uncompressed size. Only `H15_data.xml` is read, with
+a 90 MB declared/actual byte limit, UTF-8 validation, DTD/entity rejection, depth 32,
+two million element starts and ten thousand selected monthly periods at most. Archive
+encryption, symlinks and unsupported compression fail. The streaming XML parser validates
+the fixed selected namespace, native metadata, month-end labels and available status,
+including selected observations outside the requested window. It consumes the entire
+data member/document and verifies its CRC before returning; malformed later content
+cannot be accepted because the target series appeared earlier. Discarded nodes are
+removed to keep memory bounded. Series annotations are retained separately from BLS
+per-observation footnotes.
+
+Both clients share `macro/_http.py`, with three attempts and three-second request pacing
+by default, bounded transient retries/Retry-After, disabled redirects, streamed byte
+limits and an injected monotonic deadline. Attempts, clocks, sleep and jitter are
+injectable; failures expose controlled codes. Pacing is local to one client instance
+and is not a provider daily-quota guard. Provider code has no database dependencies.
+The standalone opt-in source scripts use existing locked dependencies and keep all
+downloaded data in memory.
+
+The checkpoint passed 713 isolated deterministic tests (472 unit / 241 integration),
+including 124 new provider/domain cases, plus Ruff and strict mypy. Separate live 2024
+reads through both production clients returned twelve available months for each fixed
+series on 2026-10-08. Schema, correction persistence, manual jobs, coverage queries/API
+and agent tools remain later checkpoints.
 
 ### BLS transport and source evidence
 

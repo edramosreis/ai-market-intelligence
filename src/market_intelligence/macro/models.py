@@ -177,6 +177,7 @@ class ProviderRead:
     source_messages: tuple[str, ...] = ()
     latest_hints: tuple[tuple[MacroSeries, date], ...] = ()
     prepared_text: str | None = None
+    source_annotations: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "fetch_started_at", utc(self.fetch_started_at))

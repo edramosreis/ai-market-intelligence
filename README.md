@@ -9,8 +9,8 @@ Treasury ingestion, read-only curve queries, and agent tools are also implemente
 The next macro component has a reviewed direct-source contract: BLS monthly CPI and
 unemployment, followed by the Federal Reserve Board's native monthly effective federal
 funds rate. Public source checks verified their observation history and explicit missing
-values. The BLS provider/domain client is implemented with synthetic tests. The separate
-Fed client, persistence, HTTP queries and agent tools are pending. The
+values. Both native provider clients and domain models are implemented with synthetic
+tests. Persistence, manual ingestion, HTTP queries and agent tools are pending. The
 design retains current historical values and corrections observed after local collection;
 it does not establish what was known before collection. See
 [the macro source contract](ARCHITECTURE.md#14-direct-monthly-macro-source-contract).
@@ -20,7 +20,15 @@ native year using the keyless API. It performs no database writes, saved downloa
 model calls; the unregistered BLS API's request quotas apply. Existing locked dependencies
 suffice. Month identity, Decimal values, source-dash missing reasons and footnotes are
 retained; annual averages are excluded and counted. Local fetch/receipt times are not
-publication times.
+publication times. The separate `.venv\Scripts\python.exe scripts/check_fed_live.py --year 2024`
+reads the full H.15 ZIP/XML in bounded memory and returns the selected monthly-rate year,
+preserving native month-end labels, release prepared text and source annotations. No
+archive is extracted or saved; remote schemas are not loaded. A live 2024 sample through
+each implemented client returned 12 available months per series on 2026-10-08. This
+verifies the provider boundary, not historical publication/vintage coverage.
+All 713 isolated deterministic tests (472 unit / 241 integration), Ruff and strict
+mypy pass, including 124 new native provider/domain cases. No macro database schema,
+ingestion command or HTTP/agent endpoint is added by this checkpoint.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 

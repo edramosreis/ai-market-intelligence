@@ -150,3 +150,26 @@ def test_transport_failures_have_bounded_backoff_and_sanitized_errors() -> None:
             jitter=lambda: 0,
         )._request("GET", "https://example.test", max_bytes=20, deadline=100)
     assert calls == 3 and clock.sleeps == [1, 2]
+
+
+def test_invalid_http_content_encoding_is_sanitized_without_retry() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200, headers={"Content-Encoding": "gzip"}, content=b"Private bad gzip"
+        )
+
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as http,
+        pytest.raises(MacroError, match="^invalid_payload$"),
+    ):
+        MacroTransport(http, monotonic=lambda: 0)._request(
+            "GET",
+            "https://example.test",
+            max_bytes=20,
+            deadline=100,
+        )
+    assert calls == 1
