@@ -19,8 +19,10 @@ The two provider clients and native models in `macro/` are implemented with synt
 tests. Revision `0004` adds dedicated macro catalog, receipt audits, immutable versions
 and footnotes, and current-version pointers. `db/macro_store.py` atomically persists
 initial states and changed content, preserves unchanged provenance, reports retained
-omissions and rejects delayed older overlapping receipts. Jobs, reader/API and agent
-integration remain pending. `bls.py` reads the
+omissions and rejects delayed older overlapping receipts. Manual `ingest-bls` and
+`ingest-fed` commands connect those providers to storage through `macro/jobs.py`,
+`macro/service.py` and `macro/cli.py`; reader/API and agent integration remain pending.
+`bls.py` reads the
 two fixed series through keyless v1; `fed.py` reads only the selected monthly series
 from bounded full-release ZIP/XML, without extraction or remote schema loading.
 Preserve monthly periods, native index/percent units,
@@ -32,7 +34,7 @@ history plus immutable changes observed locally after collection, with no retros
 historical-vintage claim. Do not implement a FRED dependency, silently replace native
 monthly rates with daily averages, or depend on retiring DDP custom/preformatted routes.
 
-The macro storage checkpoint passes 777 isolated tests (483 unit / 294 integration),
+The macro job checkpoint passes 838 isolated tests (523 unit / 315 integration),
 Ruff and strict mypy. Catalogs are SELECT-only, versions/footnotes INSERT-only for the
 writer, and current pointers/audits INSERT/UPDATE with no DELETE. Preserve content and
 ordered source footnotes in immutable versions; numeric formatting, footnote ordering,
@@ -50,6 +52,21 @@ safe UTF-8 and native month-end labels; unsupported selected missing statuses st
 Preserve source annotations separately from observation footnotes. Provider success does
 not establish publication-calendar completeness. Live scripts remain separate opt-in
 checks and consume public provider quotas; pacing is not a daily-quota guard.
+
+Macro jobs default to full native history (BLS from 1947-01, unemployment from 1948-01;
+Fed from 1954-07), with configurable month-aligned bounds and only completed months.
+BLS windows request at most ten inclusive years. Refresh replays the current year and
+preceding five years for both BLS series; Fed refresh reads all native history once from
+the full release. Resume uses repeatable snapshots to verify the latest overlapping
+audit, exact requested bounds and all expected stored month keys/counts. Failed/running
+attempts, absent months or retained omissions prevent reuse; explicit unavailable months
+are still represented keys. BLS always refetches windows touching the five-year revision
+region, and Fed always refetches windows including the latest completed month. Older
+skipped reads do not establish fresh verification or historical publication completeness.
+Each fetch occurs after the running audit transaction closes. Preserve earlier successful
+windows on failure and expose only controlled errors/audit state. Per-command HTTP limits
+(default 12 BLS / 3 Fed attempts, including retries) are not shared daily-quota guards.
+Reject refresh with resume/end and invalid bounds/budgets before configuration or network.
 
 ## Build, Test, and Development Commands
 
@@ -74,6 +91,12 @@ Run from the repository root; full installation instructions are in `README.md`.
 - `.venv\Scripts\python.exe scripts/check_hyperliquid_live.py`: opt-in public BTC perpetual funding/context samples; no keys, database, paid archives, or model calls.
 - `.venv\Scripts\python.exe scripts/check_bls_live.py --year 2024`: opt-in one-year keyless CPI/unemployment source check; no database, saved dataset or model calls. BLS v1 quotas still apply.
 - `.venv\Scripts\python.exe scripts/check_fed_live.py --year 2024`: opt-in full H.15 ZIP/XML source check retaining only the requested monthly-rate year in memory; no database, saved dataset or model calls.
+- `docker compose run --rm ingest ingest-bls --start 2024-01-01 --end 2025-01-01`: ingest one native CPI/unemployment year after migration 0004.
+- `docker compose run --rm ingest ingest-bls --resume`: backfill from 1947, verifying older complete chunks and replaying the revision region.
+- `docker compose run --rm ingest ingest-bls --refresh`: replay current year and preceding five years.
+- `docker compose run --rm ingest ingest-fed --resume`: read full native monthly-rate history from 1954-07 once; latest completed month is always refetched.
+- `docker compose run --rm ingest ingest-fed --refresh`: replay full native monthly history from one full-release read.
+- `.venv\Scripts\python.exe -m market_intelligence ingest-fed --start 2024-01-01 --end 2025-01-01`: equivalent host Fed job; `ingest-bls` also works on the host.
 - `.venv\Scripts\python.exe scripts/check_hyperliquid_api.py`: opt-in funding HTTP/source parity and stored OI receipt checks with reader credentials; no writes or model calls.
 - `.venv\Scripts\python.exe scripts/check_treasury_api.py`: opt-in stored HTTP pagination/rates/spreads versus fresh 1990/2020/2024 samples; requires API/backfill, performs no writes or model calls.
 - `docker compose run --rm ingest ingest-treasury --start 2024-01-01 --end 2024-02-01`: load/replay one Treasury month.

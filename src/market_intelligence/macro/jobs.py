@@ -85,4 +85,6 @@ class MacroIngestionError(Exception):
         self.code, self.provider, self.window, self.run_id = code, provider, window, run_id
         self.storage_code = storage_code
         self.audit_recorded = False
+        self.requests_used = 0
+        self.request_limit: int | None = None
         super().__init__(code.value)

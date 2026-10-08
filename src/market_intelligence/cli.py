@@ -39,6 +39,10 @@ from market_intelligence.ingestion.models import (
     utc_now,
 )
 from market_intelligence.ingestion.service import ingest
+from market_intelligence.macro import cli as macro_cli
+from market_intelligence.macro.jobs import MacroIngestionError
+from market_intelligence.macro.models import MacroProvider
+from market_intelligence.macro.storage_models import MacroFailureCode
 from market_intelligence.treasury.client import TreasuryClient
 from market_intelligence.treasury.models import (
     DATASET_CODE,
@@ -414,12 +418,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     oi.add_argument(
         "--max-seconds", type=float, default=30, help="Overall job budget (default 30 seconds)"
     )
+    for name, provider in (("ingest-bls", MacroProvider.BLS), ("ingest-fed", MacroProvider.FED)):
+        macro = subcommands.add_parser(
+            name,
+            help=(
+                "Backfill native BLS monthly CPI and unemployment"
+                if provider == MacroProvider.BLS
+                else "Backfill native Fed monthly effective federal funds rates"
+            ),
+        )
+        macro_cli.add_arguments(macro, provider)
     args = parser.parse_args(argv)
     if args.command == "ingest-treasury" and args.refresh and args.resume:
         parser.error("Treasury --refresh cannot be combined with --resume")
     if args.command == "ingest-funding" and args.refresh and args.resume:
         parser.error("Funding --refresh cannot be combined with --resume")
+    if args.command in {"ingest-bls", "ingest-fed"} and args.refresh and (args.resume or args.end):
+        parser.error("Macro --refresh cannot be combined with --resume or --end")
     try:
+        macro_plan = (
+            macro_cli.command_plan(args, utc_now())
+            if args.command in {"ingest-bls", "ingest-fed"}
+            else None
+        )
         settings = DatabaseSettings()  # type: ignore[call-arg]
         if args.command == "init-db":
             initialize_database(settings)
@@ -444,6 +465,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_treasury_ingestion(args, settings)
         elif args.command in {"ingest-funding", "collect-open-interest"}:
             run_hyperliquid(args, settings)
+        elif macro_plan is not None:
+            macro_cli.run(macro_plan, settings)
         else:
             engine = create_db_engine(settings, DatabaseRole(args.role))
             try:
@@ -457,6 +480,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             finally:
                 engine.dispose()
+    except MacroIngestionError as macro_error:
+        print(json.dumps(macro_cli.failure_report(macro_error)), file=sys.stderr, flush=True)
+        return 130 if macro_error.code == MacroFailureCode.INTERRUPTED else 1
     except HyperliquidIngestionError as hyperliquid_error:
         window = hyperliquid_error.window
         recovery = (

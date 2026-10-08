@@ -14,7 +14,9 @@ tests. Migration `0004` adds dedicated macro catalog, receipt audits, immutable 
 versions/footnotes and current-version pointers. Atomic persistence preserves unchanged
 provenance, appends meaningful value/missing/footnote changes and reports omitted periods
 without removing retained history. Delayed older overlapping receipts are rejected.
-Manual ingestion, HTTP queries and agent tools follow as separate checkpoints. The
+Manual `ingest-bls` and `ingest-fed` jobs connect those providers to storage, with
+native history defaults, bounded reads, explicit refresh/resume and controlled failures.
+HTTP queries and agent tools follow as separate checkpoints. The
 design retains current historical values and corrections observed after local collection;
 it does not establish what was known before collection. See
 [the macro source contract](ARCHITECTURE.md#14-direct-monthly-macro-source-contract).
@@ -30,7 +32,7 @@ preserving native month-end labels, release prepared text and source annotations
 archive is extracted or saved; remote schemas are not loaded. A live 2024 sample through
 each implemented client returned 12 available months per series on 2026-10-08. This
 verifies the provider boundary, not historical publication/vintage coverage.
-All 777 isolated deterministic tests (483 unit / 294 integration), Ruff and strict
+All 838 isolated deterministic tests (523 unit / 315 integration), Ruff and strict
 mypy pass. This includes 124 native provider/domain cases and 64 new schema/persistence
 cases covering constraints, restricted roles, migration preservation, replay, corrections,
 omissions, independent locks, rollback, delayed receipts and reader snapshot consistency.
@@ -38,7 +40,10 @@ The writer has INSERT-only access to immutable versions/footnotes; current rows 
 those versions rather than duplicating their content. Local collection times establish
 locally observed states, never retrospective publisher vintages. Revision `0004` was
 verified only in isolated PostgreSQL; apply it before starting the updated reader/API.
-This checkpoint adds no macro ingestion command or HTTP/agent endpoint.
+Another 61 job/CLI cases verify native request windows, correction-aware resume,
+request limits, real provider parsing through writer transactions, controlled failure
+audits, earlier committed chunks and pre-configuration validation. No macro HTTP/agent
+endpoint is added yet. See [manual macro ingestion](#ingest-native-monthly-macro-history).
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -344,6 +349,65 @@ The opt-in HTTP check compares January 1990/2020/2024 to fresh validated source 
 On 2026-10-06, January 1990/2020/2024 each matched all **294 rates** and **42 benchmark values/spreads** across **three pages**. Existing Coinbase 2020/2024 daily and hourly HTTP checks also passed after the history extension. At that checkpoint the full **388-test** isolated PostgreSQL suite, formatting, linting, and strict type checks passed. Agent calls remain disabled locally; those source checks are separate from Treasury agent execution tests.
 
 Review the code in this order: `treasury/models.py` and `client.py` for native source semantics; migration `0002`, `db/treasury_store.py`, and `treasury/service.py` for persistence/replay; `treasury/query_models.py` and `queries.py` for evidence/calculations; then the Treasury routes in `api.py`, `agent/` adapters/instructions/runner, and matching unit/integration tests. Live check scripts are separate from the synthetic deterministic fixtures.
+
+## Ingest native monthly macro history
+
+After rebuilding the runtime image and applying migration `0004` using the startup
+commands above, run explicit manual jobs with ingestion credentials:
+
+```powershell
+docker compose run --rm ingest ingest-bls --start 2024-01-01 --end 2025-01-01
+docker compose run --rm ingest ingest-fed --start 2024-01-01 --end 2025-01-01
+```
+
+Dates must be first-of-month `YYYY-MM-01`; windows are half-open and end no later than
+the current month's start. A completed observation month can still be absent because
+publication lags or data is unavailable. Source-dash values, absent months and retained
+omissions are reported separately. Current history and changes collected locally do
+not establish retrospective publisher vintages or publication times.
+
+| Command policy | BLS CPI/unemployment | Fed monthly effective federal funds |
+| --- | --- | --- |
+| Default history | 1947-01; unemployment begins in 1948-01 | 1954-07 |
+| Fetch windows | At most ten inclusive years per request | One full-release ZIP/XML read for the requested window |
+| `--refresh` | Current year plus preceding five years, covering CPI revision history | All native monthly history; the release download already contains it |
+| `--resume` | Reuse verified complete older windows; refetch windows touching the revision region | Reuse verified complete older explicit windows; refetch any window including the latest completed month |
+
+```powershell
+docker compose run --rm ingest ingest-bls --resume
+docker compose run --rm ingest ingest-bls --refresh
+docker compose run --rm ingest ingest-fed --resume
+docker compose run --rm ingest ingest-fed --refresh
+```
+
+Each command accepts configurable `--start`/`--end`, `--window-seconds` (default 180),
+`--max-seconds` (default 900), `--request-interval` (default 3; range 3–60) and
+`--max-requests` (default 12 BLS / 3 Fed; range 1–25). The request limit counts retries
+and all fetches through that command's client. It does not track other processes,
+earlier commands or the provider's daily quota. Exhaustion reports `retry_exhausted`
+with request usage and a separate `request_budget_exhausted` flag. Refresh cannot be
+combined with `--start`, `--end` or `--resume`. Bounds/modes/budgets are validated before
+configuration, database or network access.
+
+Resume checks the latest relevant overlapping audit, exact bounds, expected native
+month keys and stored counts in one repeatable snapshot. A later failed/running attempt,
+a gap or a read retaining omitted periods forces a refetch. Explicit unavailable values
+still represent source-returned month keys. Skipped reads preserve their old receipt
+provenance and report zero new writes; they do not establish fresh confirmation. Changes
+outside the BLS refresh region require an explicit replay without resume. Fed's default
+window includes the latest completed month and therefore always reads the release again.
+
+Successful windows commit independently. Download/parsing occur between short database
+transactions; no connection is held during HTTP. Versions, footnotes, current pointers
+and success counts commit together. A failure preserves earlier committed windows and
+attempts a separate controlled failure audit. JSON progress/recovery output contains
+counts and identifiers, not downloaded datasets, SQL, credentials or model payloads.
+No scheduler or model call is involved. Equivalent host jobs use
+`.venv\Scripts\python.exe -m market_intelligence ingest-bls` or `ingest-fed`.
+
+The commands have been verified using synthetic HTTP responses and isolated PostgreSQL.
+Development migration, real-source ingestion/backfill and reader/API acceptance remain
+separate checkpoints; existing source-only live samples do not establish this full path.
 
 ## Run tests
 

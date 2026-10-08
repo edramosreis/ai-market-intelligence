@@ -456,8 +456,8 @@ local accepted data path, not universal source retention or arbitrary-model fact
 ## 14. Direct monthly macro source contract
 
 Status: **native models, provider clients, macro schema and atomic persistence
-implemented; jobs, HTTP and agent integration follow separately.** Use direct original
-publishers for three fixed monthly series. This
+implemented with manual ingestion jobs; HTTP and agent integration follow separately.**
+Use direct original publishers for three fixed monthly series. This
 contract selects current historical values and locally observed corrections; it does
 not establish retrospective publication or vintage history.
 
@@ -541,7 +541,7 @@ downloaded data in memory.
 The checkpoint passed 713 isolated deterministic tests (472 unit / 241 integration),
 including 124 new provider/domain cases, plus Ruff and strict mypy. Separate live 2024
 reads through both production clients returned twelve available months for each fixed
-series on 2026-10-08. The subsequent storage checkpoint is described below; manual jobs,
+series on 2026-10-08. Subsequent storage and manual-job checkpoints are described below;
 coverage queries/API and agent tools remain pending.
 
 ### BLS transport and source evidence
@@ -676,12 +676,12 @@ retained and are reported as exact series/month pairs without fresh source confi
 Versions, footnotes, current pointers and successful audit counts commit atomically. A
 storage failure rolls them all back, leaving the separately started audit running; the
 caller can record a controlled failure in a separate transaction. Sanitized codes never
-contain SQL, credentials or provider payloads. Macro jobs will own that orchestration
-and failure handling; no CLI ingestion or resume policy is introduced here.
+contain SQL, credentials or provider payloads. Macro jobs own that orchestration
+and failure handling through the manual ingestion contract described below.
 
 ```mermaid
 sequenceDiagram
-    participant Job as Future manual job
+    participant Job as ingest_macro manual job
     participant Source as BLS or Fed client
     participant Store as MacroStore
     participant DB as PostgreSQL
@@ -707,15 +707,79 @@ sequenceDiagram
 The storage checkpoint adds 27 persistence cases (11 unit / 16 PostgreSQL) for exact
 values, dash/zero distinctions, unchanged provenance, successive corrections, omitted
 periods, receipt metadata, independent locks, stale reads, atomic rollback, controlled
-failures and reader snapshot consistency. The complete suite passes 777 deterministic
-tests (483 unit / 294 integration), plus Ruff and strict mypy. Revision 0004 is applied
-only in isolated tests at this checkpoint; development migration, jobs/backfill and
-reader/API integration remain pending.
+failures and reader snapshot consistency. The storage checkpoint passed 777 deterministic
+tests (483 unit / 294 integration), plus Ruff and strict mypy. Revision 0004 was applied
+only in isolated tests. The subsequent manual-job checkpoint is described below;
+development migration/backfill and reader/API integration remain pending.
 
 A locally observed correction means that a changed value was received at a known local
 time. It does not establish when the publisher changed the value, which releases were
 missed between collections, or what users knew during earlier years. Month labels,
 footnotes, prepared times and local receipt times cannot answer an unverified historical
 as-of question. No implicit cross-source alignment, forward filling, scheduler or new
-agent tool is introduced by this source review. History defaults will be documented
-with the ingestion contract rather than inherited from Coinbase's 2020 setting.
+agent tool is introduced. Native history defaults are defined in the manual ingestion
+contract below rather than inherited from Coinbase's 2020 setting.
+
+### Manual ingestion jobs
+
+`macro/jobs.py` fixes full native history defaults: BLS from 1947-01 (unemployment's
+expected keys begin in 1948-01), Fed from 1954-07. `macro/cli.py` validates half-open
+first-of-month bounds before configuration or I/O. Both commands default to the current
+month's start as exclusive end, so only completed observation periods are retained.
+Completion of a month is separate from whether its value has been published.
+
+BLS splits the configured history into requests spanning at most ten inclusive years,
+with each validated window committed independently. A partial first year still counts
+toward that ten-year limit. Fed uses a single logical window and one full-release read,
+rather than repeatedly downloading the archive for individual months. Both retain the
+reviewed native metadata and only the three selected series.
+
+`--refresh` replays the current year and previous five years for BLS, covering the
+documented CPI seasonal revision region for both selected series. Fed refresh replays
+the whole native monthly history, since the full download already includes it. Earlier
+BLS corrections outside this region require explicit replay. No missed intermediate
+publisher revisions can be reconstructed from these replays.
+
+`MacroStore.completed()` uses one repeatable snapshot of audits/current content for
+resume. It rejects any overlapping running audit, requires the latest overlapping
+finished attempt to be successful for the exact requested window, and verifies received
+count, no retained omissions, every expected native series/month key and unavailable
+count. Explicit BLS dash months count as represented keys; absent periods prevent reuse.
+An older complete success cannot hide a newer failed, partial or omitted-period read.
+BLS windows touching the revision region always refetch; Fed windows including the latest
+completed month always refetch. Skipped historical reads establish no new receipt time or
+fresh confirmation. A retained omission remains distinguishable from a newly returned key.
+
+`macro/service.py` closes each audit/resume transaction before HTTP. Provider transaction
+locks and stale-receipt checks continue to protect persistence, allowing no older delayed
+read to replace a newer receipt. Each command has its own client request counter, bounded
+to 12 BLS / 3 Fed HTTP attempts by default (including retries); this is not a shared daily
+quota guard or a scheduler. Positive finite per-window/overall deadlines are injected
+for tests. After a failure, earlier commits remain and the running audit is failed in a
+separate transaction when possible; failed audit persistence does not mask the original
+controlled error. Interrupted commands exit 130; other controlled failures exit 1.
+
+```mermaid
+flowchart TD
+    CLI[cli.py: ingest-bls or ingest-fed] --> Plan[macro/cli.py and jobs.py: validate bounds and budgets]
+    Plan --> Job[macro/service.py: iterate native request windows]
+    Job --> Resume{Eligible historical resume?}
+    Resume -->|yes| Check[MacroStore.completed: audit and current-key snapshot]
+    Check -->|complete and verified| Skip[Report previous read with zero new writes]
+    Check -->|cannot reuse| Start[Commit running audit]
+    Resume -->|no| Start
+    Start --> Fetch[Reviewed BLS or Fed client: bounded HTTP and parsing]
+    Fetch --> Read[ProviderRead: temporary native observations and receipt evidence]
+    Read --> Store[MacroStore.persist: versions, footnotes, pointers and success audit]
+    Store -->|atomic commit| DB[(PostgreSQL)]
+    Fetch -->|controlled failure| Failed[Record separate failure audit when possible]
+    Store -->|rollback and controlled failure| Failed
+```
+
+The job/CLI checkpoint adds 61 deterministic cases (40 unit / 21 PostgreSQL) verifying
+native window planning, correction-aware resume, request counters, pre-configuration
+validation, real parser/store/CLI execution, separate failure audits, no connection during
+HTTP and preservation of earlier committed chunks. All 838 tests (523 unit / 315
+integration), Ruff and strict mypy pass. This checkpoint uses synthetic provider responses
+and isolated PostgreSQL only; development migration, real-source backfill, reader/API and
+agent acceptance follow separately.
