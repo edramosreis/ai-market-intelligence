@@ -1,4 +1,4 @@
-"""Fixed Coinbase BTC/USD and nominal Treasury reader queries only."""
+"""Fixed Coinbase, Treasury, and Hyperliquid BTC perpetual reader queries only."""
 
 import json
 from collections.abc import Sequence
@@ -8,6 +8,7 @@ from typing import Any, Literal, cast
 from openai.types.responses import FunctionToolParam
 
 from market_intelligence.agent.models import (
+    FundingWindowArguments,
     LatestArguments,
     StrictArguments,
     ToolEvidence,
@@ -15,6 +16,7 @@ from market_intelligence.agent.models import (
     TreasurySpreadArguments,
     WindowArguments,
 )
+from market_intelligence.hyperliquid.queries import HyperliquidQueries
 from market_intelligence.ingestion.models import parse_instant
 from market_intelligence.queries.models import UnknownMarketError, validate_window
 from market_intelligence.queries.service import MarketQueries
@@ -25,7 +27,18 @@ LATEST: Literal["get_latest_btc_candle"] = "get_latest_btc_candle"
 SUMMARY: Literal["get_btc_window_summary"] = "get_btc_window_summary"
 TREASURY_CURVE: Literal["get_treasury_curve"] = "get_treasury_curve"
 TREASURY_SPREADS: Literal["get_treasury_spread_history"] = "get_treasury_spread_history"
-TOOL_NAMES = (LATEST, SUMMARY, TREASURY_CURVE, TREASURY_SPREADS)
+FUNDING_LATEST: Literal["get_latest_btc_funding"] = "get_latest_btc_funding"
+FUNDING_SUMMARY: Literal["get_btc_funding_summary"] = "get_btc_funding_summary"
+OI_LATEST: Literal["get_latest_btc_open_interest"] = "get_latest_btc_open_interest"
+TOOL_NAMES = (
+    LATEST,
+    SUMMARY,
+    TREASURY_CURVE,
+    TREASURY_SPREADS,
+    FUNDING_LATEST,
+    FUNDING_SUMMARY,
+    OI_LATEST,
+)
 
 
 def definitions(evidence: Sequence[ToolEvidence] = ()) -> list[FunctionToolParam]:
@@ -54,6 +67,28 @@ def definitions(evidence: Sequence[ToolEvidence] = ()) -> list[FunctionToolParam
             "Follow next_cursor with unchanged bounds; pages are separate snapshots. "
             "No window aggregates or date alignment with BTC are calculated",
             TreasurySpreadArguments,
+        ),
+        (
+            FUNDING_LATEST,
+            "Read the latest stored settled Hyperliquid BTC perpetual funding event, with "
+            "exact source time, derived UTC settlement hour, signed hourly fraction, "
+            "premium and staleness; positive funding means longs pay shorts",
+            LatestArguments,
+        ),
+        (
+            FUNDING_SUMMARY,
+            "Read settled Hyperliquid BTC perpetual funding in an explicit [start, end) "
+            "window of complete UTC hours from 2024. Returns coverage and gaps, arithmetic "
+            "rate sum as fraction and percent, and mean hourly fraction. Metrics are "
+            "unavailable with missing hours. No compounding, annualization or trader PnL",
+            FundingWindowArguments,
+        ),
+        (
+            OI_LATEST,
+            "Read the latest stored Hyperliquid BTC perpetual OI receipt: quantity in BTC, "
+            "mark/oracle prices in USDT, local fetch/receipt times, identity and staleness. "
+            "No exchange event timestamp or historical completeness; no automatic refresh",
+            LatestArguments,
         ),
     ]
     tools: list[FunctionToolParam] = [
@@ -104,14 +139,40 @@ def unique_json_object(value: str) -> dict[str, Any]:
 
 
 class MarketTools:
-    def __init__(self, queries: MarketQueries, treasury_queries: TreasuryQueries) -> None:
+    def __init__(
+        self,
+        queries: MarketQueries,
+        treasury_queries: TreasuryQueries,
+        hyperliquid_queries: HyperliquidQueries,
+    ) -> None:
         self.queries = queries
         self.treasury_queries = treasury_queries
+        self.hyperliquid_queries = hyperliquid_queries
 
     def execute(self, name: str, arguments: str, call_id: str) -> ToolEvidence:
         if name not in TOOL_NAMES:
             raise LookupError("Unknown tool")
         values = unique_json_object(arguments)
+        if name == FUNDING_SUMMARY:
+            funding = FundingWindowArguments.model_validate(values)
+            return ToolEvidence(
+                call_id=call_id,
+                name=FUNDING_SUMMARY,
+                arguments=funding.model_dump(),
+                result=self.hyperliquid_queries.funding_summary(
+                    parse_instant(funding.start), parse_instant(funding.end)
+                ),
+            )
+        if name in (FUNDING_LATEST, OI_LATEST):
+            empty = LatestArguments.model_validate(values)
+            return ToolEvidence(
+                call_id=call_id,
+                name=FUNDING_LATEST if name == FUNDING_LATEST else OI_LATEST,
+                arguments=empty.model_dump(),
+                result=self.hyperliquid_queries.latest_funding()
+                if name == FUNDING_LATEST
+                else self.hyperliquid_queries.latest_open_interest(),
+            )
         if name == TREASURY_CURVE:
             curve = TreasuryCurveArguments.model_validate(values)
             return ToolEvidence(

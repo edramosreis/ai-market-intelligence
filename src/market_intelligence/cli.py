@@ -15,8 +15,18 @@ from sqlalchemy.exc import SQLAlchemyError
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.candle_store import CandleStore
 from market_intelligence.db.connection import create_db_engine
+from market_intelligence.db.hyperliquid_store import HyperliquidStore
 from market_intelligence.db.setup import grant_table_access, provision_roles
 from market_intelligence.db.treasury_store import TreasuryStore
+from market_intelligence.hyperliquid.client import HyperliquidClient
+from market_intelligence.hyperliquid.models import (
+    HISTORY_START,
+    FundingReport,
+    HyperliquidErrorCode,
+    HyperliquidIngestionError,
+    funding_windows,
+)
+from market_intelligence.hyperliquid.service import collect_open_interest, ingest_funding
 from market_intelligence.ingestion.coinbase import BASE_URL, CoinbaseClient
 from market_intelligence.ingestion.models import (
     DEFAULT_START,
@@ -227,6 +237,100 @@ def treasury_recovery(error: TreasuryIngestionError) -> str:
     )
 
 
+def report_funding_progress(report: FundingReport) -> None:
+    print(
+        json.dumps(
+            {
+                "event": "funding_window_skipped" if report.skipped else "funding_window_succeeded",
+                "source_code": "hyperliquid",
+                "instrument_code": "BTC-PERP",
+                "run_id": str(report.run_id),
+                "start": report.window.start.isoformat(),
+                "end": report.window.end.isoformat(),
+                "expected_hours": report.expected_hours,
+                "received": report.received,
+                "inserted": report.inserted,
+                "updated": report.updated,
+                "unchanged": report.unchanged,
+                "retained": report.retained,
+                "stored_missing_hours": report.missing_hours,
+                "audit_basis": "previous_full_feed_read" if report.skipped else "validated_feed",
+            }
+        ),
+        flush=True,
+    )
+
+
+def run_hyperliquid(args: argparse.Namespace, settings: DatabaseSettings) -> None:
+    if not 3 <= args.request_interval <= 60:
+        raise ValueError("Hyperliquid pacing must be between 3 and 60 seconds")
+    if args.command == "ingest-funding":
+        observed_now = utc_now()
+        end = (
+            parse_instant(args.end)
+            if args.end
+            else observed_now.replace(microsecond=observed_now.microsecond // 1000 * 1000)
+        )
+        current = observed_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        previous = (current - timedelta(days=1)).replace(day=1)
+        start = (
+            previous
+            if args.refresh
+            else (parse_instant(args.start) if args.start else HISTORY_START)
+        )
+        funding_windows(start, end)
+        if end > observed_now:
+            raise ValueError("Funding end cannot be in the future")
+    engine = create_db_engine(settings, DatabaseRole.INGEST)
+    try:
+        with httpx.Client(
+            headers={"User-Agent": "market-intelligence/0.1"},
+            follow_redirects=False,
+            trust_env=False,
+        ) as http:
+            source, store = (
+                HyperliquidClient(http, request_interval=args.request_interval),
+                HyperliquidStore(engine),
+            )
+            if args.command == "ingest-funding":
+                reports = ingest_funding(
+                    source,
+                    store,
+                    start,
+                    end,
+                    resume=args.resume,
+                    month_seconds=args.month_seconds,
+                    max_seconds=args.max_seconds,
+                    progress=report_funding_progress,
+                )
+                print(
+                    json.dumps(
+                        {
+                            "event": "funding_ingestion_completed",
+                            "windows": len(reports),
+                            "skipped_windows": sum(r.skipped for r in reports),
+                        }
+                    ),
+                    flush=True,
+                )
+            else:
+                run_id, snapshot = collect_open_interest(source, store, seconds=args.max_seconds)
+                print(
+                    json.dumps(
+                        {
+                            "event": "open_interest_collected",
+                            "run_id": str(run_id),
+                            "snapshot_id": str(snapshot.snapshot_id),
+                            "received_at": snapshot.received_at.isoformat(),
+                            "source_event_time": None,
+                        }
+                    ),
+                    flush=True,
+                )
+    finally:
+        engine.dispose()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Market intelligence database and ingestion jobs")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -278,9 +382,43 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--month-seconds", type=float, default=60, help="Fetch/validation budget per month"
     )
     treasury.add_argument("--max-seconds", type=float, help="Optional overall command deadline")
+    funding = subcommands.add_parser(
+        "ingest-funding", help="Backfill Hyperliquid BTC hourly settled funding"
+    )
+    funding_start = funding.add_mutually_exclusive_group()
+    funding_start.add_argument("--start", help="UTC hour start; defaults to 2024-01-01")
+    funding_start.add_argument(
+        "--refresh", action="store_true", help="Replay previous/current months"
+    )
+    funding.add_argument("--end", help="Exclusive UTC end; defaults to current time")
+    funding.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse complete historical reads; refetch gaps/current month",
+    )
+    funding.add_argument(
+        "--request-interval", type=float, default=3, help="Request pacing seconds (3-60)"
+    )
+    funding.add_argument(
+        "--month-seconds", type=float, default=90, help="Fetch/validation budget per window"
+    )
+    funding.add_argument(
+        "--max-seconds", type=float, default=900, help="Overall job budget (default 900 seconds)"
+    )
+    oi = subcommands.add_parser(
+        "collect-open-interest", help="Collect one current BTC perpetual OI snapshot"
+    )
+    oi.add_argument(
+        "--request-interval", type=float, default=3, help="Request pacing seconds (3-60)"
+    )
+    oi.add_argument(
+        "--max-seconds", type=float, default=30, help="Overall job budget (default 30 seconds)"
+    )
     args = parser.parse_args(argv)
     if args.command == "ingest-treasury" and args.refresh and args.resume:
         parser.error("Treasury --refresh cannot be combined with --resume")
+    if args.command == "ingest-funding" and args.refresh and args.resume:
+        parser.error("Funding --refresh cannot be combined with --resume")
     try:
         settings = DatabaseSettings()  # type: ignore[call-arg]
         if args.command == "init-db":
@@ -304,6 +442,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_ingestion(args, settings)
         elif args.command == "ingest-treasury":
             run_treasury_ingestion(args, settings)
+        elif args.command in {"ingest-funding", "collect-open-interest"}:
+            run_hyperliquid(args, settings)
         else:
             engine = create_db_engine(settings, DatabaseRole(args.role))
             try:
@@ -317,6 +457,30 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             finally:
                 engine.dispose()
+    except HyperliquidIngestionError as hyperliquid_error:
+        window = hyperliquid_error.window
+        recovery = (
+            f"Retry ingest-funding --start {window.start.isoformat()} "
+            f"--end {window.end.isoformat()} "
+            "without --resume; earlier windows are retained."
+            if window
+            else "Rerun the original command; earlier committed facts are retained."
+        )
+        print(
+            json.dumps(
+                {
+                    "event": "hyperliquid_ingestion_failed",
+                    "operation": hyperliquid_error.operation,
+                    "code": hyperliquid_error.code.value,
+                    "audit_recorded": hyperliquid_error.audit_recorded,
+                    "run_id": str(hyperliquid_error.run_id) if hyperliquid_error.run_id else None,
+                    "recovery": recovery,
+                }
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+        return 130 if hyperliquid_error.code == HyperliquidErrorCode.INTERRUPTED else 1
     except TreasuryIngestionError as treasury_error:
         print(
             json.dumps(

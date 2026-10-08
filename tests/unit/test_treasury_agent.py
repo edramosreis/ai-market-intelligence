@@ -28,6 +28,7 @@ from market_intelligence.treasury.query_models import (
 from tests.agent_fakes import (
     FakeModel,
     function,
+    hyperliquid_queries,
     message,
     queries,
     response,
@@ -42,10 +43,10 @@ CURVE = '{"observed_on":"2024-01-01"}'
 HISTORY = '{"start":"2024-01-01","end":"2024-01-02","cursor":null}'
 
 
-def test_allowlist_has_only_four_closed_tools_with_required_nullable_cursor() -> None:
+def test_allowlist_has_seven_closed_tools_with_required_nullable_treasury_cursor() -> None:
     tools = definitions()
     assert {tool["name"] for tool in tools} == set(TOOL_NAMES)
-    assert len(tools) == 4
+    assert len(tools) == 7
     schema = cast(
         dict[str, Any],
         next(tool["parameters"] for tool in tools if tool["name"] == TREASURY_SPREADS),
@@ -86,8 +87,11 @@ def test_cursor_schema_keeps_only_latest_server_continuations_for_each_window() 
         next(tool["parameters"] for tool in tools if tool["name"] == TREASURY_SPREADS),
     )
     assert schema["properties"]["cursor"]["enum"] == [None, second]
-    assert len(tools) == 4 and all(tool["strict"] for tool in tools)
-    fresh = cast(dict[str, Any], definitions()[-1]["parameters"])
+    assert len(tools) == 7 and all(tool["strict"] for tool in tools)
+    fresh = cast(
+        dict[str, Any],
+        next(tool["parameters"] for tool in definitions() if tool["name"] == TREASURY_SPREADS),
+    )
     assert fresh["properties"]["cursor"]["enum"] == [None]
 
 
@@ -102,7 +106,9 @@ def test_treasury_tools_execute_only_the_fixed_dataset_and_relay_exact_evidence(
         response(message("US Treasury same-date spread: -0.125 percentage points / -12.5 bps.")),
     )
     with model.client() as client:
-        agent = AgentRunner(client, MarketTools(btc, treasury), settings(), now=lambda: NOW)
+        agent = AgentRunner(
+            client, MarketTools(btc, treasury, hyperliquid_queries()), settings(), now=lambda: NOW
+        )
         result = agent.run("What was the Treasury curve or spread on January 1, 2024?")
     assert result.status == "answered" and result.limitations == []
     assert not btc.mock_calls
@@ -142,9 +148,9 @@ def test_invalid_treasury_argument_shapes_do_not_reach_queries(name: str, argume
     btc, treasury = queries(), treasury_queries()
     model = FakeModel(response(function(name, arguments)))
     with model.client() as client:
-        result = AgentRunner(client, MarketTools(btc, treasury), settings(), now=lambda: NOW).run(
-            "Treasury rates?"
-        )
+        result = AgentRunner(
+            client, MarketTools(btc, treasury, hyperliquid_queries()), settings(), now=lambda: NOW
+        ).run("Treasury rates?")
     assert result.limitations == [LimitationCode.INVALID_ARGUMENTS]
     assert not btc.mock_calls and not treasury.mock_calls and not result.evidence
 
@@ -179,7 +185,9 @@ def test_invalid_dates_and_cursor_binding_fail_before_database_access(
         with model.client() as client:
             result = AgentRunner(
                 client,
-                MarketTools(queries(), TreasuryQueries(engine, now=lambda: NOW)),
+                MarketTools(
+                    queries(), TreasuryQueries(engine, now=lambda: NOW), hyperliquid_queries()
+                ),
                 settings(),
                 now=lambda: NOW,
             ).run("Treasury rates?")
@@ -197,9 +205,9 @@ def test_mixed_btc_and_treasury_tools_share_the_three_call_four_request_budget()
         response(message("BTC and Treasury observations have separate source/window evidence.")),
     )
     with model.client() as client:
-        result = AgentRunner(client, MarketTools(btc, treasury), settings(), now=lambda: NOW).run(
-            "Give the stored BTC summary and Treasury evidence for these dates."
-        )
+        result = AgentRunner(
+            client, MarketTools(btc, treasury, hyperliquid_queries()), settings(), now=lambda: NOW
+        ).run("Give the stored BTC summary and Treasury evidence for these dates.")
     assert result.status == "answered" and len(result.evidence) == 3
     assert result.model_requests == 4 and result.tool_calls == 3
     assert model.requests[-1]["tool_choice"] == "none"
@@ -239,19 +247,43 @@ def test_partial_history_requires_a_complete_cursor_chain(continue_history: bool
     model = FakeModel(*replies)
     with model.client() as client:
         result = AgentRunner(
-            client, MarketTools(queries(), treasury), settings(), now=lambda: NOW
+            client,
+            MarketTools(queries(), treasury, hyperliquid_queries()),
+            settings(),
+            now=lambda: NOW,
         ).run("Give the Treasury spread history.")
     assert result.status == ("answered" if continue_history else "limited")
     assert result.limitations == ([] if continue_history else [LimitationCode.PARTIAL_RESULTS])
     assert isinstance(result.evidence[0].result, TreasurySpreadPage)
     assert result.evidence[0].result.next_cursor == token
-    first_schema = cast(dict[str, Any], model.requests[0]["tools"][-1]["parameters"])
-    next_schema = cast(dict[str, Any], model.requests[1]["tools"][-1]["parameters"])
+    first_schema = cast(
+        dict[str, Any],
+        next(
+            tool["parameters"]
+            for tool in model.requests[0]["tools"]
+            if tool["name"] == TREASURY_SPREADS
+        ),
+    )
+    next_schema = cast(
+        dict[str, Any],
+        next(
+            tool["parameters"]
+            for tool in model.requests[1]["tools"]
+            if tool["name"] == TREASURY_SPREADS
+        ),
+    )
     assert first_schema["properties"]["cursor"]["enum"] == [None]
     assert next_schema["properties"]["cursor"]["enum"] == [None, token]
     if continue_history:
         assert treasury.spread_page.call_args.args[-1] == token
-        final_schema = cast(dict[str, Any], model.requests[-1]["tools"][-1]["parameters"])
+        final_schema = cast(
+            dict[str, Any],
+            next(
+                tool["parameters"]
+                for tool in model.requests[-1]["tools"]
+                if tool["name"] == TREASURY_SPREADS
+            ),
+        )
         assert final_schema["properties"]["cursor"]["enum"] == [None]
     else:
         assert "Whole requested history" not in result.answer
@@ -271,7 +303,10 @@ def test_starting_with_an_external_cursor_cannot_establish_whole_window_results(
     model = FakeModel(response(function(TREASURY_SPREADS, args)), response(message()))
     with model.client() as client:
         result = AgentRunner(
-            client, MarketTools(queries(), treasury), settings(), now=lambda: NOW
+            client,
+            MarketTools(queries(), treasury, hyperliquid_queries()),
+            settings(),
+            now=lambda: NOW,
         ).run("Treasury history?")
     assert result.limitations == [LimitationCode.PARTIAL_RESULTS]
 
@@ -282,7 +317,10 @@ def test_treasury_database_errors_are_sanitized_without_model_retry() -> None:
     model = FakeModel(response(function(TREASURY_CURVE, CURVE)))
     with model.client() as client:
         result = AgentRunner(
-            client, MarketTools(queries(), treasury), settings(), now=lambda: NOW
+            client,
+            MarketTools(queries(), treasury, hyperliquid_queries()),
+            settings(),
+            now=lambda: NOW,
         ).run("Private question")
     assert result.limitations == [LimitationCode.DATABASE_UNAVAILABLE]
     assert len(model.requests) == 1 and not result.evidence
@@ -298,7 +336,10 @@ def test_oversized_treasury_evidence_is_omitted() -> None:
     model = FakeModel(response(function(TREASURY_SPREADS, HISTORY)))
     with model.client() as client:
         result = AgentRunner(
-            client, MarketTools(queries(), treasury), settings(), now=lambda: NOW
+            client,
+            MarketTools(queries(), treasury, hyperliquid_queries()),
+            settings(),
+            now=lambda: NOW,
         ).run("Treasury history?")
     assert result.limitations == [LimitationCode.OUTPUT_LIMIT] and not result.evidence
     assert len(model.requests) == 1 and len(result.model_dump_json().encode()) < 32000
@@ -307,7 +348,7 @@ def test_oversized_treasury_evidence_is_omitted() -> None:
 def test_instructions_preserve_treasury_units_missingness_and_cross_domain_boundaries() -> None:
     prompt = instructions(NOW)
     for text in (
-        "four supplied",
+        "seven supplied",
         "percentage points",
         "basis points",
         "source_null",

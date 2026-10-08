@@ -28,6 +28,9 @@ flowchart LR
     TC[US Treasury monthly XML] --> TI[One-shot Treasury ingestion]
     TI --> TV[Validate native dates and yields]
     TV --> DB
+    HL[Hyperliquid public Info API] --> HI[Manual funding / OI jobs]
+    HI --> HV[Validate native events / receipt snapshots]
+    HV --> DB
     U[HTTP client / Swagger UI] --> API[FastAPI]
     API --> Q[Shared reader query functions]
     Q --> DB
@@ -238,7 +241,7 @@ Latest-data staleness defaults to age exceeding 900 seconds (`API_STALE_AFTER_SE
 
 Use the official Python SDK and Responses API with a short, application-owned function-calling loop. The application executes functions requested by the model and returns their outputs using the corresponding call identifiers. Explicit strict function schemas require closed objects and required fields. [OpenAI function-calling guide](https://developers.openai.com/api/docs/guides/function-calling), [official SDK documentation](https://developers.openai.com/api/docs/libraries).
 
-Expose only `get_latest_btc_candle()`, `get_btc_window_summary(start, end)`, `get_treasury_curve(observed_on)`, and `get_treasury_spread_history(start, end, cursor)`. Tools bind BTC to the configured Coinbase BTC/USD market and canonical five-minute interval, and Treasury to its nominal par-yield dataset; the model cannot select an arbitrary table, SQL expression, or network target. Pydantic validates arguments again on the server, including time/date boundaries, cursor binding, and range limits. BTC summaries can reference historical dates anywhere in the stored range; they do not send all constituent candles to the model. Treasury uses native source dates, not candle timestamps. Arithmetic stays in Python/SQL.
+Expose only `get_latest_btc_candle()`, `get_btc_window_summary(start, end)`, `get_treasury_curve(observed_on)`, `get_treasury_spread_history(start, end, cursor)`, `get_latest_btc_funding()`, `get_btc_funding_summary(start, end)`, and `get_latest_btc_open_interest()`. Hyperliquid tools fix the native BTC perpetual and reuse its reader queries with exact signed funding fractions and local OI receipt evidence. Tools bind BTC to the configured Coinbase BTC/USD market and canonical five-minute interval, and Treasury to its nominal par-yield dataset; the model cannot select an arbitrary table, SQL expression, or network target. Pydantic validates arguments again on the server, including time/date boundaries, cursor binding, and range limits. BTC summaries can reference historical dates anywhere in the stored range; they do not send all constituent candles to the model. Treasury uses native source dates, not candle timestamps. Arithmetic stays in Python/SQL.
 
 Runner controls enforce one question per request, at most three tools/four model requests, sequential execution, a 60-second execution budget, and input/output limits. A per-process nonblocking lock admits one agent request; a busy request returns 503. SDK retries are disabled and timeouts use the remaining budget. Deadlines are checked between synchronous operations; an in-flight operation must return before the check, so this is not guaranteed cancellation at 60 seconds. Database reads end before waiting for model responses; integration tests confirm the reader pool has no checked-out connection during those calls.
 
@@ -266,7 +269,7 @@ Recommend Python **3.14** and PostgreSQL **18**, with exact supported patch/imag
 | [SQLAlchemy 2 Core](https://docs.sqlalchemy.org/en/20/core/) + [psycopg 3](https://www.psycopg.org/psycopg3/docs/) | Explicit relational queries, connections, exact decimals, PostgreSQL upserts | Direct psycopg SQL is leaner; accept Core's dependency for composable queries and schema metadata, without ORM sessions/relationships |
 | [Alembic](https://alembic.sqlalchemy.org/en/latest/) | Reviewed, versioned schema evolution | Handwritten versioned SQL also works; Alembic adds setup but a familiar migration history. Review migrations; do not trust autogeneration blindly |
 | [HTTPX](https://www.python-httpx.org/) | HTTP timeouts, client lifecycle, and injectable test transports | requests is reasonable for synchronous ingestion; choose one direct HTTP library |
-| Official OpenAI SDK | Responses API integration | Raw HTTP exposes more protocol boilerplate; the bounded four-tool loop does not require LangChain, LangGraph, or an agent framework |
+| Official OpenAI SDK | Responses API integration | Raw HTTP exposes more protocol boilerplate; the bounded seven-tool loop does not require LangChain, LangGraph, or an agent framework |
 | [pytest](https://docs.pytest.org/en/stable/) | Focused unit and PostgreSQL integration tests | unittest avoids a dependency; pytest fixtures make injected clients and database setup concise |
 | [Ruff](https://docs.astral.sh/ruff/) + [mypy](https://mypy.readthedocs.io/en/stable/) | Reproducible formatting, linting, and type checks | Separate formatter/linter tools or Pyright are valid; use a single formatter and one type checker |
 | Docker Compose | Local PostgreSQL and reproducible app/job execution | Host-only processes are lighter but harder to reproduce; no Kubernetes or local cloud emulator |
@@ -344,3 +347,108 @@ On 2026-10-06 the local 2020-to-current-month backfill stored 1,691 returned sou
 The 1990 history extension on the same date retained 9,197 source dates (1990-01-02 through 2026-10-05), 128,758 normalized facts, 99,712 available yields, and 29,046 absent fields. Every one of the 442 source months has a successful audit; three failed October 2010 attempts remain as resolved operational history. A resumed default-range command reused 441 historical reads and refetched the current month. Independent reader checks confirmed fourteen rows per date, unchanged existing historical fact/provenance content, and 711,152 retained Coinbase candles. January 1990/2020/2024 source-to-HTTP checks each matched 294 rates and 42 benchmark yields through three pages; all 388 isolated tests and quality checks pass. Retained history is independent of the API's bounded request-width guard.
 
 The Treasury agent acceptance checkpoint on 2026-10-07 passed 430 deterministic tests (256 unit and 174 integration), Ruff formatting/lint, and strict mypy over 59 files. Simulated model calls exercised real reader queries through HTTP, including compact pagination, missing/zero rates, source-specific limitations, mixed-domain evidence, and corrections during model waits. Exact evidence stayed stable and reader connections were released before model calls. Six separately inspected live cases covered a 2024 curve, complete 1990 spread history, date-only and absent-date limitations, separate BTC/Treasury evidence, and a three-page partial history. Early live attempts exposed opaque-cursor transcription errors and misleading page-overlap prose; strict server-issued cursor choices and explicit coverage instructions addressed them before successful rechecks. README records observed results. Fact/audit counts stayed unchanged; the persistent agent remained disabled and no automatic refresh was performed. Manual examples do not establish factuality for arbitrary questions.
+
+## 13. Hyperliquid BTC perpetual provider boundary
+
+The next structured source is the native BTC perpetual on Hyperliquid's first perp dex.
+The [Info endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals)
+exposes settled funding events and current asset contexts. `hyperliquid/models.py` retains
+exact UTC event milliseconds, native signed funding/premium fractions, a separately
+derived settlement hour, and OI snapshot identities with local fetch/receipt times.
+`hyperliquid/client.py` uses fixed requests, injected clocks/transport, bounded decoded
+response sizes, retries, pacing, and deadlines. It validates BTC by metadata position,
+not a hardcoded universe index. Current context funding is excluded from settled history.
+
+Time-range responses are limited to 500 records. Inclusive pagination retains only an
+identical boundary event once; duplicate settlement hours, changed boundaries, invalid
+values, and out-of-window events fail. Windows span at most 31 days from the selected
+2024 start. The response may be empty/gapped, and a successful read alone does not
+establish complete hourly history. Source timestamps are never rounded for storage.
+
+The [contract specification](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/contract-specifications)
+maps one contract to one underlying BTC, with USDT denomination and USDC collateral
+and settlement. OI is retained in BTC and mark/oracle context prices in USDT. These
+prices are separate from Coinbase traded spot prices. The signed hourly funding rate
+is a fraction; positive rates mean longs pay shorts. Rate sums do not establish trader
+PnL without a position/notional path. OI has no source event timestamp in this endpoint,
+so it describes a locally received snapshot rather than retrospective hourly coverage.
+
+The opt-in source check on 2026-10-07 validated 24 January 1 funding events, 744 distinct
+January 2024 settlement hours through two pages, and a current BTC context. Forty-five
+synthetic provider checks and all 301 unit tests pass, with Ruff and strict mypy.
+No dependency/service was added. Older OI archives and unattended collection remain
+outside this slice.
+
+Revision `0003` introduces a read-only perpetual instrument catalog and separate funding
+and OI facts/audits. Funding keys retain source/instrument/exact event time, with one
+event per derived settlement hour. Corrections replace current rates/premiums while
+unchanged values preserve materialization provenance. An event timestamp shifted within
+an existing hour fails for inspection; omitted rows remain stored and are reported.
+There is no overwritten-value archive or retrospective as-of claim. OI is keyed by a
+new receipt identity, append-only for the writer, and binds to one collection audit.
+
+`ingest-funding` plans UTC month chunks from 2024 through the requested eligible end.
+Current source history contains settled events, so its default end is current time,
+not the Coinbase closed-candle cutoff. Resume requires a complete latest successful
+historical read plus matching stored counts; gaps/latest failures are retried and the
+current month is always fetched. Replay without resume checks historical corrections.
+`collect-open-interest` collects one current receipt per invocation, without fabricating
+past history or enabling a schedule. Independent advisory locks exclude simultaneous
+jobs of the same kind while allowing funding, OI, Treasury, and Coinbase independently.
+
+Running audits commit before HTTP. Facts and successful audit counts commit atomically;
+failures roll back that batch and record sanitized errors separately. Earlier committed
+windows survive later failures. Catalogs are SELECT-only, funding/audit tables allow
+writer INSERT/UPDATE, and OI facts allow INSERT only. Reader grants remain SELECT-only.
+The persistence checkpoint passes 519 tests on isolated PostgreSQL, including clean
+migrations, compatibility, replay/corrections, failures, atomicity, gaps, and locks.
+`hyperliquid/queries.py` exposes shared reader queries through five funding/OI HTTP
+routes. Read-only repeatable snapshots cover contract metadata, coverage, page rows,
+and calculations. Funding uses half-open complete UTC-hour windows, exact source
+timestamps and a separately derived settlement grid. Gaps withhold full-window rate
+sums/means; rate sum is arithmetic, without compounding or a position/notional path.
+Evidence keeps signed fraction units and distinct materialization provenance. Latest
+funding age uses the event timestamp, with a configurable two-hour default threshold.
+
+OI ranges use local receipt timestamps, snapshot identities, and observed counts,
+without inventing an exchange timestamp or an expected collection calendar. Latest OI
+age uses receipt time, with a configurable one-hour default threshold. Pagination binds
+source/instrument/dataset/window and uses exact event time for funding or receipt time
+plus UUID for OI ties. Coverage describes the whole window; separate pages remain
+separate snapshots. Decimal JSON values are strings. The query/API checkpoint passes
+541 isolated tests, Ruff and strict mypy, including hand-calculated metrics, no-data/gaps,
+bounded missing ranges, OI ties, HTTP failures and concurrent-correction snapshots.
+Hyperliquid agent adapters now reuse latest settled funding, complete-hour funding
+summary, and latest OI reader results. The allowlist contains seven tools across three
+domains, with the existing three-call/four-request limits. Strict schemas fix the native
+BTC perpetual and preserve explicit UTC windows; no funding/OI history pagination tools
+or ingestion actions are exposed. Missing funding hours withhold full-window metrics;
+missing or stale latest funding/OI stop with source-specific explanations and exact
+evidence. OI retains local receipt time, identity, BTC units and distinct USDT context
+prices/USDC collateral. No model selection, additional paid calls, scheduling, historical
+OI substitution or cross-domain calculation is introduced. All 589 deterministic tests
+(348 unit / 241 integration), Ruff and strict mypy over 77 files pass. Simulated model
+requests execute actual reader queries through HTTP; evidence matches the shared API,
+reader connections are released during model waits, reads preserve fact/audit counts,
+and collected results survive later funding corrections or OI receipts. These tests
+establish dispatch/evidence behavior, not arbitrary prose factuality. Separate live
+acceptance on 2026-10-08 passed nine cases with exact HTTP-reader evidence comparisons
+and manual prose inspection: complete and negative funding, gap/no-data windows, stale
+latest funding/OI, independent three-source history, and fresh latest funding/OI after
+one-off manual jobs. Native units, event/settlement/receipt times and OI identity matched
+evidence; no PnL, historical OI completeness or cross-domain statistic was invented.
+All eight fact/audit fingerprints stayed unchanged during each agent case, with reader
+connections released before model calls. No production fixes were required. The batch
+is closed and the persistent agent remains disabled. These inspected examples do not
+establish arbitrary prose factuality.
+
+Live data acceptance on 2026-10-07 retained 24,253 exact funding events across 34
+successful window reads, plus one OI receipt. January 2024's 744 events/rates/premiums
+and aggregate sum matched a fresh source read through four HTTP pages; OI HTTP evidence
+matched independently selected reader SQL by receipt identity and values. A direct
+three-hour source sample confirmed the omitted 2024-08-15 13:00 UTC funding hour.
+Whole-history queries report one missing hour and withhold full-window metrics, even
+though the source reads succeeded. Existing Coinbase/Treasury values and provenance
+matched pre-migration fingerprints. Runtime migration/API checks passed with the agent
+disabled and without model calls or archive access. These observations establish this
+local accepted data path, not universal source retention or arbitrary-model factuality.
