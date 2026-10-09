@@ -907,5 +907,11 @@ seasonal adjustment, native labels, ordered notes and content-origin receipt sem
 Historical release vintages, publication/as-of claims, derived inflation, automatic
 alignment and forward filling remain unsupported. Local observed version history may
 include unavailable older versions without pretending they were zero. All 615 unit
-tests pass, including 38 new macro agent cases. PostgreSQL/HTTP verification and separate
-code review/live prose acceptance follow; no live model calls have been made.
+tests passed at the first adapter checkpoint. The completed checkpoint passes 977 isolated
+tests (623 unit / 354 integration), Ruff and strict mypy over 110 files, including 71 new
+macro agent cases. Actual PostgreSQL readers through HTTP match exact SDK evidence;
+connections close before model calls. Corrections, unchanged replays and omissions during
+model waits preserve already collected content and its original receipts. Zero rates,
+source-missing corrections, whole-window gaps, real twenty-row pagination, retired and
+cross-question tokens, three-series budgets and source-correct partial chains are tested.
+Separate code review and live prose acceptance remain; no live model calls have been made.

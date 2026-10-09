@@ -17,7 +17,7 @@ without removing retained history. Delayed older overlapping receipts are reject
 Manual `ingest-bls` and `ingest-fed` jobs connect those providers to storage, with
 native history defaults, bounded reads, explicit refresh/resume and controlled failures.
 Read-only HTTP queries expose the fixed catalog, current monthly observations, latest
-stored month and locally observed versions; agent tools follow separately. The
+stored month and locally observed versions. Three narrow agent tools reuse those readers. The
 design retains current historical values and corrections observed after local collection;
 it does not establish what was known before collection. See
 [the macro source contract](ARCHITECTURE.md#14-direct-monthly-macro-source-contract).
@@ -33,7 +33,7 @@ preserving native month-end labels, release prepared text and source annotations
 archive is extracted or saved; remote schemas are not loaded. A live 2024 sample through
 each implemented client returned 12 available months per series on 2026-10-08. This
 verifies the provider boundary, not historical publication/vintage coverage.
-All 906 isolated deterministic tests (577 unit / 329 integration), Ruff and strict
+All 977 isolated deterministic tests (623 unit / 354 integration), Ruff and strict
 mypy pass. This includes 124 native provider/domain cases and 64 new schema/persistence
 cases covering constraints, restricted roles, migration preservation, replay, corrections,
 omissions, independent locks, rollback, delayed receipts and reader snapshot consistency.
@@ -45,6 +45,8 @@ Another 61 job/CLI cases verify native request windows, correction-aware resume,
 request limits, real provider parsing through writer transactions, controlled failure
 audits, earlier committed chunks and pre-configuration validation. Another 68 reader/API
 cases verify monthly coverage, native evidence, cursors and consistent correction snapshots.
+Another 71 agent cases verify strict native arguments, server-issued continuations,
+exact SDK/HTTP/reader evidence, gaps, observed corrections and shared call budgets.
 See [manual macro ingestion](#ingest-native-monthly-macro-history) and
 [stored macro queries](#explore-stored-monthly-macro-data).
 
@@ -204,7 +206,7 @@ Query/API verification on **2026-10-05**: the full isolated PostgreSQL suite pas
 
 `POST /v1/agent/query` accepts one JSON question and returns `status`, `answer`, exact server-collected `evidence`, `limitations`, the configured `model`, retrieval time, and request/tool counts. Each request starts a fresh conversation. Inspect its schemas in [Swagger UI](http://127.0.0.1:8000/docs).
 
-The model selects from seven application-owned tools, backed by the same reader-role queries as the HTTP API:
+The model selects from ten application-owned tools, backed by the same reader-role queries as the HTTP API:
 
 | Tool | Inputs and evidence |
 | --- | --- |
@@ -215,6 +217,36 @@ The model selects from seven application-owned tools, backed by the same reader-
 | `get_latest_btc_funding` | No arguments; latest stored settled Hyperliquid BTC perpetual funding event, exact source milliseconds, derived UTC settlement hour and staleness |
 | `get_btc_funding_summary` | Inclusive `start`, exclusive `end`; complete UTC-hour windows from 2024, arithmetic rate sum/percent/mean and gap coverage |
 | `get_latest_btc_open_interest` | No arguments; latest stored Hyperliquid BTC perpetual OI receipt, BTC quantity, USDT context prices, local receipt identity/time and staleness |
+| `get_latest_macro_observation` | Fixed `series_id`; latest stored completed month, native value/units, month lag and original content receipt |
+| `get_macro_observation_history` | Fixed `series_id`, monthly `start`/`end`, nullable `cursor`; twenty current observations per page, whole-window monthly coverage, footnotes and receipts |
+| `get_macro_observed_versions` | Fixed `series_id`, exact `month`, nullable `cursor`; twenty locally observed immutable versions per page, current version number and content-origin receipts |
+
+Macro series are BLS `CUSR0000SA0` CPI index (1982–84=100), BLS `LNS14000000`
+unemployment percent, and FRB `RIFSPFF_N.M` monthly effective federal funds percent per
+annum. BLS series are seasonally adjusted; the Fed series is not. Monthly labels use
+completed `YYYY-MM-01` periods and half-open windows. CPI levels are not inflation rates.
+Latest means latest stored, with explicit month lag, including an unavailable value;
+it does not establish publisher-current data or verified publication delay.
+
+History and locally observed versions begin with cursor null. Continue only with the
+latest server-issued token for the same series/window or series/month. Tokens cannot
+cross tool kinds or questions, and completed queries retire them. Unfinished chains
+return `partial_results`; pages are separate snapshots. Whole-window coverage counts
+represented source-missing months separately from absent stored months. Empty storage,
+gaps and source-dash values return controlled limitations rather than fabricated values.
+Local versions/receipt times do not establish retrospective release vintages or past
+market knowledge. Original content receipts remain attached after unchanged replay or
+omission. No agent tool fetches providers, initiates ingestion, computes inflation,
+forward-fills or aligns sources automatically.
+
+Macro agent verification on **2026-10-09**: **977 deterministic tests** pass
+(**623 unit / 354 integration**), plus Ruff and strict mypy over 110 files. The 71 new
+cases include real reader-role PostgreSQL queries through HTTP and synthetic replies
+through the official SDK. They verify native units/month labels/notes, unavailable latest
+values, uncollected months, twenty-row continuations, shared budgets and exact evidence
+after correction/replay/omission during model waits. Reader connections are released
+before those waits. No live provider/model calls were made; separate manual prose
+acceptance remains pending. The persistent agent remains disabled.
 
 Application code fixes the Coinbase market, Treasury dataset, and native Hyperliquid BTC perpetual. Server validation rejects unknown functions, extra/duplicate arguments, unsupported date/timestamp formats, invalid cursors, and oversized windows. The history tool starts with `cursor: null`, then follows returned `next_cursor` values with unchanged bounds. Its strict schema offers only null and the latest server-issued continuation for each queried window, avoiding transcription of opaque tokens. Whole-window coverage counts stored source dates and all normalized tenors, not calendar completeness or only benchmark rates; only each page's observations identify its returned dates. Separate pages are separate snapshots. An answer is accepted only after a data tool executes; its separate evidence preserves exact decimals, source, period, provenance, and coverage. The agent cannot run SQL, ingest, browse, write, or choose another dataset.
 
@@ -480,7 +512,8 @@ or retained omissions preserve it. Receipts include source access dates and meta
 separately from observation footnotes. Neither receipt times nor Fed prepared text
 establish observation release times. Version history records content changes observed
 locally and does not reconstruct publisher vintages or historical market as-of states.
-Derived inflation and agent tools follow separate reviewed implementations.
+Derived inflation remains outside this implementation. Native macro agent tools reuse
+these same readers; see [the agent contract](#ask-questions-through-the-agent).
 
 Run the opt-in stored-data check after the normal locked dependency installation:
 
@@ -663,7 +696,7 @@ a fresh public source read, and independently matches the latest OI HTTP receipt
 reader SQL. It requires the funding sample and one OI collection already stored.
 All 541 isolated tests pass, including migrations, grants, replay, gaps, rollback,
 query arithmetic, HTTP serialization, cursor binding, OI ties, and concurrent snapshots.
-The agent now has seven fixed tools: the existing BTC/Treasury tools plus latest
+At the Hyperliquid checkpoint the agent had seven fixed tools: BTC/Treasury plus latest
 settled funding, complete-hour funding summaries, and latest stored OI. The separate
 2026-10-08 live agent acceptance above inspected all three tools and their limitations.
 

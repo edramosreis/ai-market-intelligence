@@ -8,10 +8,11 @@ from unittest.mock import Mock
 from uuid import UUID
 
 import pytest
+from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
 
 from market_intelligence.agent.instructions import instructions
-from market_intelligence.agent.models import LimitationCode
+from market_intelligence.agent.models import LimitationCode, ToolEvidence
 from market_intelligence.agent.runner import AgentRunner
 from market_intelligence.agent.tools import (
     MACRO_HISTORY,
@@ -19,10 +20,13 @@ from market_intelligence.agent.tools import (
     MACRO_VERSIONS,
     SUMMARY,
     TOOL_NAMES,
+    TREASURY_SPREADS,
     MarketTools,
     definitions,
 )
+from market_intelligence.config import ApiSettings
 from market_intelligence.macro.models import BLS_NOTICE, CATALOG, MacroSeries
+from market_intelligence.macro.queries import MacroQueries
 from market_intelligence.macro.query_models import (
     MacroCoverage,
     MacroLatest,
@@ -386,3 +390,109 @@ def test_instructions_preserve_month_units_receipts_and_vintage_boundaries() -> 
         "content-origin receipts",
     ]:
         assert required in text
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {**HISTORY, "start": "1946-01-01"},
+        {**HISTORY, "start": "2024-02-01", "end": "2024-01-01"},
+        {**HISTORY, "end": "2026-11-01"},
+        {**HISTORY, "end": "2024-04-01"},
+    ],
+)
+def test_actual_reader_bounds_fail_before_database_access(arguments: dict[str, str | None]) -> None:
+    actual = MacroQueries(
+        cast(Engine, object()),
+        ApiSettings(_env_file=None, macro_max_window_months=2),  # type: ignore[call-arg]
+        now=lambda: NOW,
+    )
+    model = FakeModel(response(function(MACRO_HISTORY, json.dumps(arguments))))
+    with model.client() as client:
+        result = AgentRunner(
+            client,
+            MarketTools(queries(), treasury_queries(), hyperliquid_queries(), actual),
+            settings(),
+            now=lambda: NOW,
+        ).run("Requested macro months?")
+    assert result.limitations == [LimitationCode.INVALID_ARGUMENTS]
+
+
+def test_macro_cursor_state_is_not_shared_between_questions() -> None:
+    macro = data()
+    macro.observations.return_value = results()[1].model_copy(update={"next_cursor": "issued"})
+    model = FakeModel(
+        response(function(MACRO_HISTORY, json.dumps(HISTORY), "first")),
+        response(message("Partial history.")),
+        response(function(MACRO_HISTORY, json.dumps({**HISTORY, "cursor": "issued"}), "second")),
+    )
+    with model.client() as client:
+        runner = AgentRunner(client, tools(macro), settings(), now=lambda: NOW)
+        assert runner.run("First history?").limitations == [LimitationCode.PARTIAL_RESULTS]
+        assert runner.run("Separate history?").limitations == [LimitationCode.INVALID_ARGUMENTS]
+    assert macro.observations.call_count == 1
+    definition = next(t for t in model.requests[2]["tools"] if t["name"] == MACRO_HISTORY)
+    assert definition["parameters"]["properties"]["cursor"]["enum"] == [None]
+
+
+def test_macro_cursor_choices_are_separate_by_kind_and_latest_per_window() -> None:
+    history, versions = results()[1:]
+    other = history.model_copy(update={"end": date(2024, 3, 1)})
+    evidence = [
+        ToolEvidence(
+            call_id=str(index),
+            name=cast(Any, name),
+            arguments=cast(Any, arguments),
+            result=cast(MacroObservationPage | MacroVersionPage, page),
+        )
+        for index, (name, arguments, page) in enumerate(
+            [
+                (MACRO_HISTORY, HISTORY, history.model_copy(update={"next_cursor": "retired"})),
+                (
+                    MACRO_HISTORY,
+                    {**HISTORY, "end": other.end.isoformat()},
+                    other.model_copy(update={"next_cursor": "other-window"}),
+                ),
+                (
+                    MACRO_VERSIONS,
+                    VERSIONS,
+                    versions.model_copy(update={"next_cursor": "version-only"}),
+                ),
+                (MACRO_HISTORY, {**HISTORY, "cursor": "retired"}, history),
+            ]
+        )
+    ]
+    schema = {t["name"]: cast(dict[str, Any], t["parameters"]) for t in definitions(evidence)}
+    assert schema[MACRO_HISTORY]["properties"]["cursor"]["enum"] == [None, "other-window"]
+    assert schema[MACRO_VERSIONS]["properties"]["cursor"]["enum"] == [None, "version-only"]
+
+
+@pytest.mark.parametrize("macro_pending", [False, True])
+def test_partial_treasury_and_macro_histories_keep_correct_domain_messages(
+    macro_pending: bool,
+) -> None:
+    macro = data()
+    macro.observations.return_value = results()[1].model_copy(
+        update={"next_cursor": "macro-pending" if macro_pending else None}
+    )
+    readers = tools(macro)
+    treasury = cast(Mock, readers.treasury_queries)
+    treasury.spread_page.return_value = treasury.spread_page.return_value.model_copy(
+        update={"next_cursor": "treasury-pending"}
+    )
+    model = FakeModel(
+        response(
+            function(
+                TREASURY_SPREADS, '{"start":"2024-01-01","end":"2024-01-02","cursor":null}', "first"
+            )
+        ),
+        response(function(MACRO_HISTORY, json.dumps(HISTORY), "second")),
+        response(message("Everything complete.")),
+    )
+    with model.client() as client:
+        result = AgentRunner(client, readers, settings(), now=lambda: NOW).run(
+            "Treasury and macro histories?"
+        )
+    assert result.limitations == [LimitationCode.PARTIAL_RESULTS]
+    assert "Treasury" in result.answer
+    assert ("macro" in result.answer) == macro_pending
