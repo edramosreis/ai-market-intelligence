@@ -245,8 +245,29 @@ cases include real reader-role PostgreSQL queries through HTTP and synthetic rep
 through the official SDK. They verify native units/month labels/notes, unavailable latest
 values, uncollected months, twenty-row continuations, shared budgets and exact evidence
 after correction/replay/omission during model waits. Reader connections are released
-before those waits. No live provider/model calls were made; separate manual prose
-acceptance remains pending. The persistent agent remains disabled.
+before those waits. This deterministic checkpoint used no live provider/model calls.
+The persistent agent remains disabled.
+
+Separate macro live acceptance on **2026-10-09** used `gpt-6-luna`, the actual agent
+HTTP handler and reader-role queries. Eleven cases passed exact tool-evidence comparison
+against the native HTTP readers and separate manual inspection:
+
+| Cases | Accepted behavior |
+| --- | --- |
+| Three native 2024 histories | CPI index, unemployment percent and monthly effective federal funds percent per annum; correct adjustment, periods and collection-time limits |
+| Latest stored CPI and Fed observations | Actual stored month and month lag, without publisher-current or publication-delay claims |
+| Empty and partly collected windows | Distinct `no_data`/`incomplete` limitations, retaining requested bounds and absent months |
+| Twenty-row history continuation | All 24 months retrieved across two pages with exact server-issued cursors |
+| History exceeding the shared budget | Three pages retain 60 of 72 months; `partial_results` and continuation evidence remain explicit |
+| Locally observed version history | Exact native content and original collection/materialization receipt, without historical publisher-vintage or market-knowledge claims |
+| BTC/Treasury/CPI question | Three independently attributed sources and native windows/units within the existing shared budget |
+
+No production-code repair was needed. All 13 development fact/catalog/audit table
+fingerprints stayed unchanged, and no reader connection was held during model calls.
+These checks made no provider requests and preserve the deferred BLS backfill. No
+source-marked missing macro value is stored yet, so its separate live case remains
+pending after collection; deterministic tests already cover that behavior and correction
+handling. Inspection of these bounded cases does not guarantee arbitrary answer prose.
 
 Application code fixes the Coinbase market, Treasury dataset, and native Hyperliquid BTC perpetual. Server validation rejects unknown functions, extra/duplicate arguments, unsupported date/timestamp formats, invalid cursors, and oversized windows. The history tool starts with `cursor: null`, then follows returned `next_cursor` values with unchanged bounds. Its strict schema offers only null and the latest server-issued continuation for each queried window, avoiding transcription of opaque tokens. Whole-window coverage counts stored source dates and all normalized tenors, not calendar completeness or only benchmark rates; only each page's observations identify its returned dates. Separate pages are separate snapshots. An answer is accepted only after a data tool executes; its separate evidence preserves exact decimals, source, period, provenance, and coverage. The agent cannot run SQL, ingest, browse, write, or choose another dataset.
 

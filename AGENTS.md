@@ -113,7 +113,16 @@ Latest retains unavailable values and explicit month lag; do not classify that l
 verified publication delay or crypto-style staleness. Versions may show source-missing
 older content followed by a correction. Reuse SELECT-only readers and close connections
 before model waits. No provider call, ingestion, derived inflation, as-of reconstruction
-or automatic source alignment is exposed. Separate live prose acceptance remains pending.
+or automatic source alignment is exposed. Eleven separate live cases passed exact native
+HTTP evidence comparison and manual inspection on 2026-10-09: native histories, latest
+stored months, empty/gapped storage, pagination/partial retrieval, locally observed
+versions and a BTC/Treasury/CPI answer. No production-code repair or provider request
+was needed; all 13 table fingerprints and released reader connections were verified.
+The source-marked missing-value live case awaits collection after the deferred BLS
+backfill; deterministic tests cover it. Consult ignored `.private/MACRO_AGENT_ACCEPTANCE.md`
+and its separate cumulative ledger before any remaining paid check. Preserve usage,
+prior closed ledgers and the disabled persistent API. Bounded live inspection does not
+guarantee arbitrary prose factuality.
 
 ## Build, Test, and Development Commands
 

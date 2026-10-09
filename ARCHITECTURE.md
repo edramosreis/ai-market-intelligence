@@ -468,8 +468,9 @@ local accepted data path, not universal source retention or arbitrary-model fact
 ## 14. Direct monthly macro source contract
 
 Status: **native models, provider clients, macro schema and atomic persistence
-implemented with manual ingestion jobs and read-only HTTP queries; agent integration
-follows separately.**
+implemented with manual ingestion jobs, read-only HTTP queries and bounded native
+agent adapters. Eleven available-data live cases are accepted; the source-marked missing
+value live case awaits collection.**
 Use direct original publishers for three fixed monthly series. This
 contract selects current historical values and locally observed corrections; it does
 not establish retrospective publication or vintage history.
@@ -555,8 +556,8 @@ downloaded data in memory.
 The checkpoint passed 713 isolated deterministic tests (472 unit / 241 integration),
 including 124 new provider/domain cases, plus Ruff and strict mypy. Separate live 2024
 reads through both production clients returned twelve available months for each fixed
-series on 2026-10-08. Subsequent storage, manual-job and reader/API checkpoints are
-described below; agent tools remain pending.
+series on 2026-10-08. Subsequent storage, manual-job, reader/API and native agent
+checkpoints are described below.
 
 ### BLS transport and source evidence
 
@@ -914,4 +915,15 @@ connections close before model calls. Corrections, unchanged replays and omissio
 model waits preserve already collected content and its original receipts. Zero rates,
 source-missing corrections, whole-window gaps, real twenty-row pagination, retired and
 cross-question tokens, three-series budgets and source-correct partial chains are tested.
-Separate code review and live prose acceptance remain; no live model calls have been made.
+Separate live acceptance on 2026-10-09 used `gpt-6-luna`
+and the actual HTTP handler with reader-role queries. Eleven cases passed exact native
+HTTP evidence comparison and separate manual inspection: three 2024 native histories,
+latest stored CPI/Fed, empty/gapped local windows, complete two-page history, a larger
+three-page partial history, locally observed versions and a three-source BTC/Treasury/CPI
+answer. Native units, month labels, receipt/publication distinctions and unsupported
+historical-vintage claims were inspected. No production-code repair or provider fetch
+was needed. All 13 development table fingerprints stayed unchanged and no reader
+connection was held during model calls. The persistent API remains disabled. No explicit
+source-missing value is stored yet; that live case awaits the deferred BLS backfill.
+Deterministic tests cover source-missing values and concurrent corrections; this live
+sample does not guarantee arbitrary prose factuality.
