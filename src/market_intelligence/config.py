@@ -22,6 +22,7 @@ class ApiSettings(BaseSettings):
     )
 
     max_window_days: int = Field(default=3653, ge=1, le=36525)
+    macro_max_window_months: int = Field(default=1200, ge=1, le=1200)
     stale_after_seconds: int = Field(default=900, ge=1, le=86400)
     funding_stale_after_seconds: int = Field(default=7200, ge=3600, le=604800)
     open_interest_stale_after_seconds: int = Field(default=3600, ge=1, le=604800)

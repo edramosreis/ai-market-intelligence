@@ -456,7 +456,8 @@ local accepted data path, not universal source retention or arbitrary-model fact
 ## 14. Direct monthly macro source contract
 
 Status: **native models, provider clients, macro schema and atomic persistence
-implemented with manual ingestion jobs; HTTP and agent integration follow separately.**
+implemented with manual ingestion jobs and read-only HTTP queries; agent integration
+follows separately.**
 Use direct original publishers for three fixed monthly series. This
 contract selects current historical values and locally observed corrections; it does
 not establish retrospective publication or vintage history.
@@ -495,9 +496,10 @@ flowchart TD
     Contract --> Store[db/macro_store.py: compare and commit atomically]
     Store --> Current[(macro_current: version pointers)]
     Store --> Revisions[(Immutable versions, footnotes and receipt audits)]
-    Current -. planned .-> Reader[Read-only snapshots and explicit coverage]
-    Revisions -. planned .-> Reader
-    Reader -. planned .-> API[HTTP queries and later reviewed agent tools]
+    Current --> Reader[Read-only snapshots and explicit coverage]
+    Revisions --> Reader
+    Reader --> API[Native macro HTTP queries]
+    API -. planned .-> Agent[Later reviewed agent adapters]
     Limits[No historical release or vintage claim] -. constrains .-> Reader
 ```
 
@@ -807,3 +809,59 @@ All eight earlier Coinbase/Treasury/Hyperliquid fact/audit tables match their pr
 fingerprints. No downloaded dataset file, scheduler, macro HTTP endpoint or model call
 was introduced. These live checks establish sampled ingestion/replay behavior and observed
 stored month keys, not historical publication-calendar or retrospective vintage coverage.
+
+### Native monthly readers and HTTP
+
+`macro/queries.py` reads through the existing SELECT-only role. Catalog, current pointer,
+immutable content, version-one materialization, ordered footnotes and content-origin
+receipts are selected in one read-only REPEATABLE READ transaction per response. A
+correction committed during a response cannot mix old coverage with new values, notes,
+version numbers or receipt provenance. Connections close before results leave the query.
+Different pages are separate snapshots; cursors do not pin a history snapshot.
+
+| Route | Native result |
+| --- | --- |
+| `GET /v1/macro/series` | Three fixed series with publisher, native units, adjustment, earliest native month and actual retained month counts/bounds |
+| `GET /v1/macro/series/{series_id}/observations` | Current stored monthly values, whole-window coverage, paginated content and deduplicated content receipts |
+| `GET /v1/macro/series/{series_id}/latest` | Latest stored completed month, including an explicit unavailable value; month lag from the latest completed month |
+| `GET /v1/macro/series/{series_id}/versions` | Paginated immutable versions for one month, with current version number and local change evidence |
+
+History bounds and version labels use strict `YYYY-MM-01` dates. Requested history starts
+within each series' native lifetime, uses a half-open window and includes only completed
+months. `API_MACRO_MAX_WINDOW_MONTHS` is a separate configurable request-width bound
+(default/maximum 1200); Coinbase/Treasury day limits are not reused. Both paginated
+readers allow 1–100 rows and use keyset cursors bound to the series, query kind and exact
+window or month. Unknown series return controlled 404, invalid queries 422 and database
+failures sanitized 503. JSON Decimal values remain strings; native Fed month-end labels
+and the canonical first-of-month identity remain distinct.
+
+Coverage counts the canonical native month grid, represented keys, available values,
+explicit source-missing values and absent stored keys separately. A source dash counts
+as a represented month with no available value. Absent ranges are coalesced, returned
+at most 100 at a time and retain full range/month counts when truncated. Coverage and
+first/last bounds describe the entire requested window, including on later pages;
+observations identify only returned page months. Grid completeness does not establish a
+publication calendar. No observation is fabricated for an absent month.
+
+Latest means the latest stored month, not the publisher's BLS `latest` response hint or
+the latest available non-null value. It excludes uncompleted stored months. Its explicit
+month lag is neither collection age nor a verified publication delay; no crypto-style
+stale threshold or unverified release schedule is applied.
+
+Version provenance exposes initial and version materialization times plus the receipt
+that created its content. Replays and omitted months do not relabel an unchanged version
+as freshly verified. Receipts retain access dates, original requested bounds, fetch and
+receipt times, source messages/hints, timezone-free Fed prepared text and source/series
+annotations separately from observation footnotes. BLS evidence includes its attribution
+notice. Receipt times are local collection evidence, not per-observation publication time.
+Version history describes changes observed locally, never retrospective publisher vintages
+or an unverified historical market as-of view. Inflation calculations, source alignment,
+forward filling and new agent tools are separate work.
+
+The reader/API checkpoint adds 68 deterministic cases (54 unit / 14 PostgreSQL) for
+strict dates and cursor binding, actual reader credentials, native units/labels, dash/zero
+and absent distinctions, whole-window gaps and truncation, unavailable latest values,
+unchanged receipt provenance, observed corrections/footnotes, snapshot consistency during
+concurrent correction and exact HTTP/query parity. All 906 isolated tests pass, with Ruff
+and strict mypy. Development HTTP checks and the review guide follow this implementation
+checkpoint without further provider requests.

@@ -33,6 +33,15 @@ from market_intelligence.hyperliquid.query_models import (
     OpenInterestPage,
 )
 from market_intelligence.ingestion.models import parse_instant, utc_now
+from market_intelligence.macro.queries import MacroQueries
+from market_intelligence.macro.query_models import (
+    MacroLatest,
+    MacroObservationPage,
+    MacroSeriesEvidence,
+    MacroVersionPage,
+    UnknownMacroSeriesError,
+    month_date,
+)
 from market_intelligence.queries.models import (
     CandlePage,
     Latest,
@@ -112,6 +121,13 @@ def get_hyperliquid_queries(request: Request) -> HyperliquidQueries:
 HyperliquidReads = Annotated[HyperliquidQueries, Depends(get_hyperliquid_queries)]
 
 
+def get_macro_queries(request: Request) -> MacroQueries:
+    return cast(MacroQueries, request.app.state.macro_queries)
+
+
+MacroReads = Annotated[MacroQueries, Depends(get_macro_queries)]
+
+
 def get_agent(request: Request) -> AgentRunner:
     return cast(AgentRunner, request.app.state.agent_runner)
 
@@ -147,6 +163,7 @@ def create_app(
         app.state.market_queries = MarketQueries(active_engine, api_settings, now)
         app.state.treasury_queries = TreasuryQueries(active_engine, api_settings, now)
         app.state.hyperliquid_queries = HyperliquidQueries(active_engine, api_settings, now)
+        app.state.macro_queries = MacroQueries(active_engine, api_settings, now)
         active_client = model_client
         owns_client = False
         try:
@@ -197,6 +214,12 @@ def create_app(
     @app.exception_handler(QueryValidationError)
     async def invalid_query(request: Request, error: QueryValidationError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": str(error)})
+
+    @app.exception_handler(UnknownMacroSeriesError)
+    async def unknown_macro_series(
+        request: Request, error: UnknownMacroSeriesError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": "Unknown macro series"})
 
     @app.exception_handler(RequestValidationError)
     async def invalid_transport(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -293,6 +316,35 @@ def create_app(
         cursor: Annotated[str | None, Query(max_length=1024)] = None,
     ) -> OpenInterestPage:
         return queries.open_interest_page(window_instant(start), window_instant(end), limit, cursor)
+
+    @app.get("/v1/macro/series", response_model=list[MacroSeriesEvidence])
+    def macro_series(queries: MacroReads) -> list[MacroSeriesEvidence]:
+        return queries.list_series()
+
+    @app.get("/v1/macro/series/{series_id}/observations", response_model=MacroObservationPage)
+    def macro_observations(
+        series_id: str,
+        start: str,
+        end: str,
+        queries: MacroReads,
+        limit: Annotated[int, Query(ge=1, le=100)] = 100,
+        cursor: Annotated[str | None, Query(max_length=1024)] = None,
+    ) -> MacroObservationPage:
+        return queries.observations(series_id, month_date(start), month_date(end), limit, cursor)
+
+    @app.get("/v1/macro/series/{series_id}/latest", response_model=MacroLatest)
+    def macro_latest(series_id: str, queries: MacroReads) -> MacroLatest:
+        return queries.latest(series_id)
+
+    @app.get("/v1/macro/series/{series_id}/versions", response_model=MacroVersionPage)
+    def macro_versions(
+        series_id: str,
+        month: str,
+        queries: MacroReads,
+        limit: Annotated[int, Query(ge=1, le=100)] = 100,
+        cursor: Annotated[str | None, Query(max_length=1024)] = None,
+    ) -> MacroVersionPage:
+        return queries.observed_versions(series_id, month_date(month), limit, cursor)
 
     @app.post("/v1/agent/query", response_model=AgentResult)
     def agent_query(question: AgentQuestion, runner: Agent, response: Response) -> AgentResult:
