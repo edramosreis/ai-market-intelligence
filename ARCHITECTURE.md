@@ -927,3 +927,124 @@ connection was held during model calls. The persistent API remains disabled. No 
 source-missing value is stored yet; that live case awaits the deferred BLS backfill.
 Deterministic tests cover source-missing values and concurrent corrections; this live
 sample does not guarantee arbitrary prose factuality.
+
+## 15. Proposed local scheduled ingestion
+
+Status: **design for review; scheduler code, revision `0005`, CLI commands and Compose
+service are not implemented or activated.** The provider jobs above remain manual.
+
+### Execution boundary and proposed cadence
+
+Use one Python service in the existing runtime image, with six fixed job definitions.
+The planner selects due UTC slots; a supervisor invokes existing ingestion commands as
+argument arrays with `shell=False`. A single child runs at a time. Python's documented
+[subprocess interface](https://docs.python.org/3.14/library/subprocess.html) supports
+explicit arguments, environment and process supervision. No new dependency is proposed.
+Keep provider parsing, monthly orchestration, validation and persistence in their current
+modules; scheduling owns dispatch decisions and execution evidence.
+
+| Fixed job | Proposed UTC slots | Existing command and bounded arguments |
+| --- | --- | --- |
+| Coinbase BTC/USD | Every five minutes, one minute after the grid boundary | `ingest --refresh --chunk-seconds 60 --max-seconds 120` |
+| Hyperliquid current BTC OI | `:00`, `:15`, `:30`, `:45` each hour | `collect-open-interest --max-seconds 30` |
+| Hyperliquid BTC settled funding | Hourly at `:05` | `ingest-funding --refresh --month-seconds 90 --max-seconds 240` |
+| Treasury nominal curve | Daily at `22:00` | `ingest-treasury --refresh --month-seconds 60 --max-seconds 150` |
+| FRB monthly effective funds | Daily at `22:30` | `ingest-fed --refresh --window-seconds 180 --max-seconds 240 --max-requests 3` |
+| BLS CPI/unemployment | Nominally daily at `23:00`, subject to the BLS cooldown below | `ingest-bls --refresh --window-seconds 180 --max-seconds 240 --max-requests 3` |
+
+These are operational polling choices, not publisher release calendars or freshness
+guarantees. Single-child execution may delay a due job. All times stay UTC across daylight
+saving changes. OI records actual fetch/receipt times; its scheduled slot is never an
+exchange event time. Refresh preserves the existing 72-hour candle window, previous/current
+Treasury and funding months, BLS five-year correction region and Fed full-release read.
+The scheduler does not substitute a historical backfill for a refresh.
+
+### Explicit activation and credentials
+
+Propose a `scheduler` Compose profile and `SCHEDULER_ENABLED=false` by default, with
+an explicit allowlist of selected job IDs defaulting to empty. Reject unknown jobs and
+configuration before dispatch. Profiles alone are insufficient as an execution guard:
+Docker also starts an explicitly targeted service regardless of its profile activation.
+[Compose profile semantics](https://docs.docker.com/compose/how-tos/profiles/).
+
+Only writer credentials reach the supervisor and ingestion children. Construct a minimal
+child environment rather than inheriting unrelated configuration. No administrator or
+OpenAI credentials, model calls, Docker socket, public API endpoint or agent scheduling
+tool is needed. Active supervision targets the existing Linux runtime container; host
+preview/status and the existing manual jobs remain usable without a supervisor. The
+container excludes the host `.env`, so child dotenv loading cannot reintroduce omitted
+credentials. The scheduler runs only while the host and Docker are available. Start/stop
+instructions and any automatic container restart policy must be reviewed at activation.
+Installing the feature does not authorize its unattended operation.
+
+### Durable state and outcomes
+
+Propose revision `0005` with two operational tables, leaving all domain facts and audits
+unchanged:
+
+| Proposed table | Purpose and writer access |
+| --- | --- |
+| `scheduler_job_state` | Six migration-seeded fixed job identities; schedule cursor/initialization time, pause reason, last dispatch/completion and BLS next-allowed time. Writer SELECT/UPDATE, no INSERT/DELETE. |
+| `scheduled_job_runs` | Unique job/UTC-slot decisions with run/owner UUIDs, schedule-definition fingerprint, coalesced-slot count, start/finish times, controlled outcome/error, exit code and validated domain audit UUIDs. Writer SELECT/INSERT/UPDATE, no DELETE. |
+
+The reader can SELECT both in read-only repeatable snapshots. Job IDs, status/time shapes,
+unique slots and at most one unfinished attempt per job require PostgreSQL constraints.
+State advancement and the pre-dispatch run record commit together before launching the
+child; final outcome and any pause/cooldown changes also commit together. No transaction
+spans provider HTTP. A successful command means its execution completed, not that its
+requested data window has complete coverage. Domain audit UUIDs retain that distinction.
+Store only validated operational metadata, never provider bodies, dataset rows, raw child
+output, credentials, prompts or answers.
+
+A dedicated session advisory lock admits one scheduler process, held in autocommit mode
+and separate from domain writer-lock keys. Session locks survive transaction boundaries
+and end with their database session; they do not establish exactly-once delivery.
+[PostgreSQL advisory-lock semantics](https://www.postgresql.org/docs/18/explicit-locking.html#ADVISORY-LOCKS).
+Preserve the existing candle/Treasury/Hyperliquid job locks and macro transaction locks
+and stale-receipt protection. Manual macro HTTP fetches can still overlap a scheduled
+fetch; the current persistence rules resolve that boundary. The scheduler lock excludes
+other scheduler processes, not all manually invoked jobs or external provider consumers.
+
+### Downtime, failure and BLS policy
+
+On first enrollment, initialize the schedule cursor and wait for the first future slot;
+do not infer missed execution before enrollment. After downtime, coalesce elapsed slots
+to one latest eligible refresh per selected job and report skipped slots. Order eligible
+jobs deterministically and prevent an older slot from being redispatched after clock
+rollback or restart. OI collects one current receipt; missed historical OI is unrecoverable.
+Downtime outside a refresh window needs an explicit historical repair, not an automatic
+multi-year catch-up. Skipped slots describe execution opportunities, not missing source
+observations or a publication calendar.
+
+Provider clients retain their existing bounded retries. Do not add a whole-command retry
+loop; known transient failures can wait for the next eligible slot. Invalid content,
+source rejection or an unresolved outcome pauses the affected job for inspection. Bound
+and drain child stdout/stderr in memory (64 KiB combined); validate only known JSON event
+fields and discard raw output. A supervisory timeout adds 30 seconds to the configured
+command budget, then requests interruption, allows a bounded grace period and reaps the
+child. Termination cannot undo earlier committed chunks. Loss of ownership/database
+access stops dispatch; an unfinished child outcome is `uncertain` and blocks that job
+until explicitly reconciled. Never replay an uncertain OI collection automatically.
+
+BLS starts excluded from activation until its deferred history/coverage checkpoint is
+resolved. Once explicitly enabled, admit at most one BLS refresh and enforce at least
+24 hours after the prior child completion before another, persisted across restarts and
+pause/resume. Each command permits at most three HTTP attempts including provider retries.
+An unresolved attempt remains paused. On any `source_rejected`, pause BLS without
+guessing a reset time; the existing controlled code does not distinguish every rejection
+cause. BLS documents 25 daily queries and ten years per query for unregistered access,
+but this scheduler policy neither measures external/manual usage nor proves remaining
+provider quota. [BLS API limits](https://www.bls.gov/developers/api_faqs.htm).
+
+### Planned review and acceptance
+
+Proposed commands are `schedule preview` (configuration/planner only), `schedule status`
+(reader-only state/outcomes), `schedule run` (explicitly enabled dispatch), and fixed-job
+pause/resume controls. They are not available yet. Preview/status make no provider or
+model calls; resuming cannot erase attempts, cooldowns or unresolved outcomes.
+
+Before activation, verify slot/cooldown/coalescing behavior with injected clocks, bounded
+process supervision with synthetic children, and migration/constraints/grants/atomicity,
+duplicate runners and crash recovery against isolated PostgreSQL. Prove no open transaction
+during child execution and preserve all existing domain data/migrations. Then review one
+explicitly authorized bounded provider execution before any unattended schedule is started.
