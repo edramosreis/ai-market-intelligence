@@ -11,6 +11,11 @@ from market_intelligence.hyperliquid.query_models import (
     FundingSummary,
     OpenInterestLatest,
 )
+from market_intelligence.macro.query_models import (
+    MacroLatest,
+    MacroObservationPage,
+    MacroVersionPage,
+)
 from market_intelligence.queries.models import Latest, Summary
 from market_intelligence.treasury.query_models import TreasuryCurveResult, TreasurySpreadPage
 
@@ -22,6 +27,9 @@ ToolName = Literal[
     "get_latest_btc_funding",
     "get_btc_funding_summary",
     "get_latest_btc_open_interest",
+    "get_latest_macro_observation",
+    "get_macro_observation_history",
+    "get_macro_observed_versions",
 ]
 
 
@@ -96,6 +104,52 @@ class TreasurySpreadArguments(StrictArguments):
     )
 
 
+class MacroSeriesArguments(StrictArguments):
+    series_id: Literal["CUSR0000SA0", "LNS14000000", "RIFSPFF_N.M"] = Field(
+        description=(
+            "BLS seasonally adjusted CPI index, BLS unemployment percent, or FRB monthly "
+            "effective federal funds percent per annum"
+        ),
+    )
+
+
+class MacroHistoryArguments(MacroSeriesArguments):
+    start: str = Field(
+        pattern=r"^[0-9]{4}-[0-9]{2}-01$",
+        description="Inclusive native month YYYY-MM-01; within the selected series' lifetime",
+    )
+    end: str = Field(
+        pattern=r"^[0-9]{4}-[0-9]{2}-01$",
+        description="Exclusive month YYYY-MM-01, after start; only completed months",
+    )
+    cursor: str | None = Field(
+        min_length=1,
+        max_length=1024,
+        description=(
+            "Null for the first page, otherwise the latest server-issued next_cursor for "
+            "this exact series/start/end; never decode or edit"
+        ),
+    )
+
+
+class MacroVersionsArguments(MacroSeriesArguments):
+    month: str = Field(
+        pattern=r"^[0-9]{4}-[0-9]{2}-01$",
+        description=(
+            "Exact completed native month YYYY-MM-01; these are locally observed changes, "
+            "not historical publisher vintages"
+        ),
+    )
+    cursor: str | None = Field(
+        min_length=1,
+        max_length=1024,
+        description=(
+            "Null for the first page, otherwise the latest server-issued next_cursor for "
+            "this exact series/month; never decode or edit"
+        ),
+    )
+
+
 class AgentQuestion(StrictArguments):
     question: str = Field(min_length=1, max_length=4000)
 
@@ -104,6 +158,7 @@ class LimitationCode(StrEnum):
     NO_DATA = "no_data"
     INCOMPLETE = "incomplete"
     MISSING_RATES = "missing_rates"
+    MISSING_VALUES = "missing_values"
     PARTIAL_RESULTS = "partial_results"
     STALE = "stale"
     INVALID_ARGUMENTS = "invalid_arguments"
@@ -130,6 +185,9 @@ class ToolEvidence(StrictArguments):
         | FundingLatest
         | FundingSummary
         | OpenInterestLatest
+        | MacroLatest
+        | MacroObservationPage
+        | MacroVersionPage
     )
 
 

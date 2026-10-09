@@ -241,7 +241,19 @@ Latest-data staleness defaults to age exceeding 900 seconds (`API_STALE_AFTER_SE
 
 Use the official Python SDK and Responses API with a short, application-owned function-calling loop. The application executes functions requested by the model and returns their outputs using the corresponding call identifiers. Explicit strict function schemas require closed objects and required fields. [OpenAI function-calling guide](https://developers.openai.com/api/docs/guides/function-calling), [official SDK documentation](https://developers.openai.com/api/docs/libraries).
 
-Expose only `get_latest_btc_candle()`, `get_btc_window_summary(start, end)`, `get_treasury_curve(observed_on)`, `get_treasury_spread_history(start, end, cursor)`, `get_latest_btc_funding()`, `get_btc_funding_summary(start, end)`, and `get_latest_btc_open_interest()`. Hyperliquid tools fix the native BTC perpetual and reuse its reader queries with exact signed funding fractions and local OI receipt evidence. Tools bind BTC to the configured Coinbase BTC/USD market and canonical five-minute interval, and Treasury to its nominal par-yield dataset; the model cannot select an arbitrary table, SQL expression, or network target. Pydantic validates arguments again on the server, including time/date boundaries, cursor binding, and range limits. BTC summaries can reference historical dates anywhere in the stored range; they do not send all constituent candles to the model. Treasury uses native source dates, not candle timestamps. Arithmetic stays in Python/SQL.
+Expose only the ten reviewed tools: `get_latest_btc_candle()`,
+`get_btc_window_summary(start, end)`, `get_treasury_curve(observed_on)`,
+`get_treasury_spread_history(start, end, cursor)`, `get_latest_btc_funding()`,
+`get_btc_funding_summary(start, end)`, `get_latest_btc_open_interest()`,
+`get_latest_macro_observation(series_id)`,
+`get_macro_observation_history(series_id, start, end, cursor)` and
+`get_macro_observed_versions(series_id, month, cursor)`. Each adapter reuses its native
+reader queries. BTC binds to Coinbase spot BTC/USD and canonical five-minute candles;
+Treasury binds to nominal par yields, Hyperliquid to the native BTC perpetual, and macro
+to its three fixed BLS/FRB series. The model cannot select an arbitrary table, SQL
+expression or network target. Pydantic validates arguments again on the server, including
+native time/date boundaries, cursor binding and range limits. BTC summaries send bounded
+metrics rather than all candles. Arithmetic stays in Python/SQL.
 
 Runner controls enforce one question per request, at most three tools/four model requests, sequential execution, a 60-second execution budget, and input/output limits. A per-process nonblocking lock admits one agent request; a busy request returns 503. SDK retries are disabled and timeouts use the remaining budget. Deadlines are checked between synchronous operations; an in-flight operation must return before the check, so this is not guaranteed cancellation at 60 seconds. Database reads end before waiting for model responses; integration tests confirm the reader pool has no checked-out connection during those calls.
 
@@ -269,7 +281,7 @@ Recommend Python **3.14** and PostgreSQL **18**, with exact supported patch/imag
 | [SQLAlchemy 2 Core](https://docs.sqlalchemy.org/en/20/core/) + [psycopg 3](https://www.psycopg.org/psycopg3/docs/) | Explicit relational queries, connections, exact decimals, PostgreSQL upserts | Direct psycopg SQL is leaner; accept Core's dependency for composable queries and schema metadata, without ORM sessions/relationships |
 | [Alembic](https://alembic.sqlalchemy.org/en/latest/) | Reviewed, versioned schema evolution | Handwritten versioned SQL also works; Alembic adds setup but a familiar migration history. Review migrations; do not trust autogeneration blindly |
 | [HTTPX](https://www.python-httpx.org/) | HTTP timeouts, client lifecycle, and injectable test transports | requests is reasonable for synchronous ingestion; choose one direct HTTP library |
-| Official OpenAI SDK | Responses API integration | Raw HTTP exposes more protocol boilerplate; the bounded seven-tool loop does not require LangChain, LangGraph, or an agent framework |
+| Official OpenAI SDK | Responses API integration | Raw HTTP exposes more protocol boilerplate; the bounded ten-tool loop does not require LangChain, LangGraph, or an agent framework |
 | [pytest](https://docs.pytest.org/en/stable/) | Focused unit and PostgreSQL integration tests | unittest avoids a dependency; pytest fixtures make injected clients and database setup concise |
 | [Ruff](https://docs.astral.sh/ruff/) + [mypy](https://mypy.readthedocs.io/en/stable/) | Reproducible formatting, linting, and type checks | Separate formatter/linter tools or Pyright are valid; use a single formatter and one type checker |
 | Docker Compose | Local PostgreSQL and reproducible app/job execution | Host-only processes are lighter but harder to reproduce; no Kubernetes or local cloud emulator |
@@ -870,3 +882,30 @@ and locally observed versions. The shared 1954-07–2026-10 check matched 642 st
 and 225 uncollected months per BLS series and all 867 Fed months. All 13 checked earlier
 and macro fact/catalog/audit fingerprints stayed unchanged. Remaining BLS ingestion is
 deferred; these stored HTTP checks do not consume its provider quota.
+
+### Native macro agent adapters
+
+Three read-only adapters reuse the accepted native readers: latest stored observation,
+current monthly history and immutable versions observed locally for one month. Arguments
+select only the three catalog series; history/version pages are fixed at twenty rows.
+Dates use completed YYYY-MM-01 months. Strict schemas offer null and only the latest
+server-issued continuation for each queried series/window or series/month, separately
+by tool kind. The server also rejects unissued, transplanted, retired and cross-question
+cursors before reader execution. Unfinished histories return partial_results even if a
+later tool reads another domain. Pages remain separate snapshots.
+
+The allowlist grows from seven to ten while preserving three tool calls, four model
+requests, existing context/output/deadline limits, sequential execution and SELECT-only
+readers. No provider call, ingestion action or new calculation is exposed. Empty storage,
+uncollected months and source-marked unavailable values return distinct controlled
+limitations with exact collected evidence. Latest retains an unavailable month rather
+than substituting an earlier value. A nonzero month lag is evidence, not a verified
+publication delay or a crypto-style staleness classification.
+
+Instructions retain native CPI index versus inflation, monthly effective-rate units,
+seasonal adjustment, native labels, ordered notes and content-origin receipt semantics.
+Historical release vintages, publication/as-of claims, derived inflation, automatic
+alignment and forward filling remain unsupported. Local observed version history may
+include unavailable older versions without pretending they were zero. All 615 unit
+tests pass, including 38 new macro agent cases. PostgreSQL/HTTP verification and separate
+code review/live prose acceptance follow; no live model calls have been made.

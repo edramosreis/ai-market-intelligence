@@ -185,6 +185,7 @@ def create_app(
                     app.state.market_queries,
                     app.state.treasury_queries,
                     app.state.hyperliquid_queries,
+                    app.state.macro_queries,
                 ),
                 agent_config,
                 now=now,

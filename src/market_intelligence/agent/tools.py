@@ -1,4 +1,4 @@
-"""Fixed Coinbase, Treasury, and Hyperliquid BTC perpetual reader queries only."""
+"""Fixed Coinbase, Treasury, Hyperliquid and native macro reader queries only."""
 
 import json
 from collections.abc import Sequence
@@ -10,6 +10,9 @@ from openai.types.responses import FunctionToolParam
 from market_intelligence.agent.models import (
     FundingWindowArguments,
     LatestArguments,
+    MacroHistoryArguments,
+    MacroSeriesArguments,
+    MacroVersionsArguments,
     StrictArguments,
     ToolEvidence,
     TreasuryCurveArguments,
@@ -18,6 +21,12 @@ from market_intelligence.agent.models import (
 )
 from market_intelligence.hyperliquid.queries import HyperliquidQueries
 from market_intelligence.ingestion.models import parse_instant
+from market_intelligence.macro.queries import MacroQueries
+from market_intelligence.macro.query_models import (
+    MacroObservationPage,
+    MacroVersionPage,
+    month_date,
+)
 from market_intelligence.queries.models import UnknownMarketError, validate_window
 from market_intelligence.queries.service import MarketQueries
 from market_intelligence.treasury.queries import TreasuryQueries
@@ -30,6 +39,9 @@ TREASURY_SPREADS: Literal["get_treasury_spread_history"] = "get_treasury_spread_
 FUNDING_LATEST: Literal["get_latest_btc_funding"] = "get_latest_btc_funding"
 FUNDING_SUMMARY: Literal["get_btc_funding_summary"] = "get_btc_funding_summary"
 OI_LATEST: Literal["get_latest_btc_open_interest"] = "get_latest_btc_open_interest"
+MACRO_LATEST: Literal["get_latest_macro_observation"] = "get_latest_macro_observation"
+MACRO_HISTORY: Literal["get_macro_observation_history"] = "get_macro_observation_history"
+MACRO_VERSIONS: Literal["get_macro_observed_versions"] = "get_macro_observed_versions"
 TOOL_NAMES = (
     LATEST,
     SUMMARY,
@@ -38,6 +50,9 @@ TOOL_NAMES = (
     FUNDING_LATEST,
     FUNDING_SUMMARY,
     OI_LATEST,
+    MACRO_LATEST,
+    MACRO_HISTORY,
+    MACRO_VERSIONS,
 )
 
 
@@ -90,6 +105,29 @@ def definitions(evidence: Sequence[ToolEvidence] = ()) -> list[FunctionToolParam
             "No exchange event timestamp or historical completeness; no automatic refresh",
             LatestArguments,
         ),
+        (
+            MACRO_LATEST,
+            "Read the latest stored completed month for one fixed BLS/FRB native series. "
+            "Returns native units, adjustment, month lag and content-origin receipt; "
+            "not publisher-current data, an inflation rate, or a verified publication delay",
+            MacroSeriesArguments,
+        ),
+        (
+            MACRO_HISTORY,
+            "Read up to twenty current stored monthly observations in [start, end), with "
+            "whole-window native month coverage, source-dash/absent distinctions, footnotes "
+            "and content receipts. Follow next_cursor with the same series and bounds; "
+            "pages are separate snapshots. No inflation, forward fill or alignment",
+            MacroHistoryArguments,
+        ),
+        (
+            MACRO_VERSIONS,
+            "Read up to twenty immutable content versions observed locally for one series "
+            "and month, with ordered footnotes and original collection receipts. Follow "
+            "next_cursor with the same series/month. Not historical release vintages, "
+            "publication timestamps or knowledge as of a past date",
+            MacroVersionsArguments,
+        ),
     ]
     tools: list[FunctionToolParam] = [
         {
@@ -120,6 +158,26 @@ def definitions(evidence: Sequence[ToolEvidence] = ()) -> list[FunctionToolParam
                 "enum": cursors,
                 "description": original["description"],
             }
+        elif tool["name"] in (MACRO_HISTORY, MACRO_VERSIONS):
+            pending_macro: dict[tuple[object, ...], str | None] = {}
+            for item in evidence:
+                macro_page = item.result
+                if tool["name"] == MACRO_HISTORY and isinstance(macro_page, MacroObservationPage):
+                    pending_macro[
+                        (macro_page.series.series_id, macro_page.start, macro_page.end)
+                    ] = macro_page.next_cursor
+                elif tool["name"] == MACRO_VERSIONS and isinstance(macro_page, MacroVersionPage):
+                    pending_macro[(macro_page.series.series_id, macro_page.month)] = (
+                        macro_page.next_cursor
+                    )
+            parameters = tool["parameters"]
+            assert parameters is not None
+            properties = cast(dict[str, Any], parameters["properties"])
+            properties["cursor"] = {
+                "type": ["string", "null"],
+                "enum": [None, *dict.fromkeys(t for t in pending_macro.values() if t is not None)],
+                "description": properties["cursor"]["description"],
+            }
     return tools
 
 
@@ -144,15 +202,80 @@ class MarketTools:
         queries: MarketQueries,
         treasury_queries: TreasuryQueries,
         hyperliquid_queries: HyperliquidQueries,
+        macro_queries: MacroQueries,
     ) -> None:
         self.queries = queries
         self.treasury_queries = treasury_queries
         self.hyperliquid_queries = hyperliquid_queries
+        self.macro_queries = macro_queries
 
-    def execute(self, name: str, arguments: str, call_id: str) -> ToolEvidence:
+    @staticmethod
+    def validate_macro_cursor(
+        name: str, arguments: dict[str, str | None], evidence: Sequence[ToolEvidence]
+    ) -> None:
+        cursor = arguments["cursor"]
+        if cursor is None:
+            return
+        for item in reversed(evidence):
+            if item.name != name:
+                continue
+            keys = (
+                ("series_id", "start", "end") if name == MACRO_HISTORY else ("series_id", "month")
+            )
+            if any(item.arguments[key] != arguments[key] for key in keys):
+                continue
+            page = item.result
+            if (
+                isinstance(page, (MacroObservationPage, MacroVersionPage))
+                and page.next_cursor == cursor
+            ):
+                return
+            break
+        raise ValueError("Use the latest server-issued cursor for the same macro query")
+
+    def execute(
+        self, name: str, arguments: str, call_id: str, *, evidence: Sequence[ToolEvidence] = ()
+    ) -> ToolEvidence:
         if name not in TOOL_NAMES:
             raise LookupError("Unknown tool")
         values = unique_json_object(arguments)
+        if name == MACRO_LATEST:
+            macro = MacroSeriesArguments.model_validate(values)
+            return ToolEvidence(
+                call_id=call_id,
+                name=MACRO_LATEST,
+                arguments=macro.model_dump(),
+                result=self.macro_queries.latest(macro.series_id),
+            )
+        if name == MACRO_HISTORY:
+            history_macro = MacroHistoryArguments.model_validate(values)
+            self.validate_macro_cursor(name, history_macro.model_dump(), evidence)
+            return ToolEvidence(
+                call_id=call_id,
+                name=MACRO_HISTORY,
+                arguments=history_macro.model_dump(),
+                result=self.macro_queries.observations(
+                    history_macro.series_id,
+                    month_date(history_macro.start),
+                    month_date(history_macro.end),
+                    20,
+                    history_macro.cursor,
+                ),
+            )
+        if name == MACRO_VERSIONS:
+            versions = MacroVersionsArguments.model_validate(values)
+            self.validate_macro_cursor(name, versions.model_dump(), evidence)
+            return ToolEvidence(
+                call_id=call_id,
+                name=MACRO_VERSIONS,
+                arguments=versions.model_dump(),
+                result=self.macro_queries.observed_versions(
+                    versions.series_id,
+                    month_date(versions.month),
+                    20,
+                    versions.cursor,
+                ),
+            )
         if name == FUNDING_SUMMARY:
             funding = FundingWindowArguments.model_validate(values)
             return ToolEvidence(

@@ -29,6 +29,7 @@ from tests.agent_fakes import (
     FakeModel,
     function,
     hyperliquid_queries,
+    macro_queries,
     message,
     queries,
     response,
@@ -43,10 +44,10 @@ CURVE = '{"observed_on":"2024-01-01"}'
 HISTORY = '{"start":"2024-01-01","end":"2024-01-02","cursor":null}'
 
 
-def test_allowlist_has_seven_closed_tools_with_required_nullable_treasury_cursor() -> None:
+def test_allowlist_has_ten_closed_tools_with_required_nullable_treasury_cursor() -> None:
     tools = definitions()
     assert {tool["name"] for tool in tools} == set(TOOL_NAMES)
-    assert len(tools) == 7
+    assert len(tools) == 10
     schema = cast(
         dict[str, Any],
         next(tool["parameters"] for tool in tools if tool["name"] == TREASURY_SPREADS),
@@ -87,7 +88,7 @@ def test_cursor_schema_keeps_only_latest_server_continuations_for_each_window() 
         next(tool["parameters"] for tool in tools if tool["name"] == TREASURY_SPREADS),
     )
     assert schema["properties"]["cursor"]["enum"] == [None, second]
-    assert len(tools) == 7 and all(tool["strict"] for tool in tools)
+    assert len(tools) == 10 and all(tool["strict"] for tool in tools)
     fresh = cast(
         dict[str, Any],
         next(tool["parameters"] for tool in definitions() if tool["name"] == TREASURY_SPREADS),
@@ -107,7 +108,10 @@ def test_treasury_tools_execute_only_the_fixed_dataset_and_relay_exact_evidence(
     )
     with model.client() as client:
         agent = AgentRunner(
-            client, MarketTools(btc, treasury, hyperliquid_queries()), settings(), now=lambda: NOW
+            client,
+            MarketTools(btc, treasury, hyperliquid_queries(), macro_queries()),
+            settings(),
+            now=lambda: NOW,
         )
         result = agent.run("What was the Treasury curve or spread on January 1, 2024?")
     assert result.status == "answered" and result.limitations == []
@@ -149,7 +153,10 @@ def test_invalid_treasury_argument_shapes_do_not_reach_queries(name: str, argume
     model = FakeModel(response(function(name, arguments)))
     with model.client() as client:
         result = AgentRunner(
-            client, MarketTools(btc, treasury, hyperliquid_queries()), settings(), now=lambda: NOW
+            client,
+            MarketTools(btc, treasury, hyperliquid_queries(), macro_queries()),
+            settings(),
+            now=lambda: NOW,
         ).run("Treasury rates?")
     assert result.limitations == [LimitationCode.INVALID_ARGUMENTS]
     assert not btc.mock_calls and not treasury.mock_calls and not result.evidence
@@ -186,7 +193,10 @@ def test_invalid_dates_and_cursor_binding_fail_before_database_access(
             result = AgentRunner(
                 client,
                 MarketTools(
-                    queries(), TreasuryQueries(engine, now=lambda: NOW), hyperliquid_queries()
+                    queries(),
+                    TreasuryQueries(engine, now=lambda: NOW),
+                    hyperliquid_queries(),
+                    macro_queries(),
                 ),
                 settings(),
                 now=lambda: NOW,
@@ -206,7 +216,10 @@ def test_mixed_btc_and_treasury_tools_share_the_three_call_four_request_budget()
     )
     with model.client() as client:
         result = AgentRunner(
-            client, MarketTools(btc, treasury, hyperliquid_queries()), settings(), now=lambda: NOW
+            client,
+            MarketTools(btc, treasury, hyperliquid_queries(), macro_queries()),
+            settings(),
+            now=lambda: NOW,
         ).run("Give the stored BTC summary and Treasury evidence for these dates.")
     assert result.status == "answered" and len(result.evidence) == 3
     assert result.model_requests == 4 and result.tool_calls == 3
@@ -248,7 +261,7 @@ def test_partial_history_requires_a_complete_cursor_chain(continue_history: bool
     with model.client() as client:
         result = AgentRunner(
             client,
-            MarketTools(queries(), treasury, hyperliquid_queries()),
+            MarketTools(queries(), treasury, hyperliquid_queries(), macro_queries()),
             settings(),
             now=lambda: NOW,
         ).run("Give the Treasury spread history.")
@@ -304,7 +317,7 @@ def test_starting_with_an_external_cursor_cannot_establish_whole_window_results(
     with model.client() as client:
         result = AgentRunner(
             client,
-            MarketTools(queries(), treasury, hyperliquid_queries()),
+            MarketTools(queries(), treasury, hyperliquid_queries(), macro_queries()),
             settings(),
             now=lambda: NOW,
         ).run("Treasury history?")
@@ -318,7 +331,7 @@ def test_treasury_database_errors_are_sanitized_without_model_retry() -> None:
     with model.client() as client:
         result = AgentRunner(
             client,
-            MarketTools(queries(), treasury, hyperliquid_queries()),
+            MarketTools(queries(), treasury, hyperliquid_queries(), macro_queries()),
             settings(),
             now=lambda: NOW,
         ).run("Private question")
@@ -337,7 +350,7 @@ def test_oversized_treasury_evidence_is_omitted() -> None:
     with model.client() as client:
         result = AgentRunner(
             client,
-            MarketTools(queries(), treasury, hyperliquid_queries()),
+            MarketTools(queries(), treasury, hyperliquid_queries(), macro_queries()),
             settings(),
             now=lambda: NOW,
         ).run("Treasury history?")
@@ -348,7 +361,7 @@ def test_oversized_treasury_evidence_is_omitted() -> None:
 def test_instructions_preserve_treasury_units_missingness_and_cross_domain_boundaries() -> None:
     prompt = instructions(NOW)
     for text in (
-        "seven supplied",
+        "ten supplied",
         "percentage points",
         "basis points",
         "source_null",

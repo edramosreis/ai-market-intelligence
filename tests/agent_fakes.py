@@ -15,6 +15,7 @@ from openai import OpenAI
 
 from market_intelligence.config import AgentSettings, ApiSettings
 from market_intelligence.hyperliquid.queries import HyperliquidQueries
+from market_intelligence.macro.queries import MacroQueries
 from market_intelligence.queries.models import (
     CandleEvidence,
     Coverage,
@@ -129,6 +130,10 @@ def queries() -> Mock:
 
 def hyperliquid_queries() -> Mock:
     return Mock(spec=HyperliquidQueries)
+
+
+def macro_queries() -> Mock:
+    return Mock(spec=MacroQueries)
 
 
 def treasury_curve() -> TreasuryCurveResult:

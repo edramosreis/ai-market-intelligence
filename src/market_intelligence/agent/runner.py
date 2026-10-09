@@ -29,6 +29,11 @@ from market_intelligence.hyperliquid.query_models import (
     OpenInterestLatest,
 )
 from market_intelligence.ingestion.models import as_utc, utc_now
+from market_intelligence.macro.query_models import (
+    MacroLatest,
+    MacroObservationPage,
+    MacroVersionPage,
+)
 from market_intelligence.queries.models import Latest, Summary, UnknownMarketError
 from market_intelligence.treasury.query_models import TreasuryCurveResult, TreasurySpreadPage
 
@@ -46,6 +51,8 @@ MESSAGES = {
         "The agent requested invalid tool arguments. Use YYYY-MM-DD source dates for "
         "Treasury, or explicit UTC dates/five-minute-aligned timestamps for BTC windows."
         " Hyperliquid funding windows require complete UTC hours from 2024."
+        " Macro requests require one fixed series and completed YYYY-MM-01 months, "
+        "with the latest server-issued cursor for the same query."
     ),
     LimitationCode.MISSING_RATES: (
         "Stored Treasury evidence has unavailable yields or benchmark inputs. Missing rates "
@@ -116,6 +123,50 @@ OI_MESSAGES = {
 }
 
 
+MACRO_MESSAGES = {
+    LimitationCode.NO_DATA: (
+        "No stored macro observations or locally observed versions are available for this "
+        "query. Uncollected months do not establish source omissions; no provider fetch "
+        "was initiated. Inspect the selected series and requested months."
+    ),
+    LimitationCode.INCOMPLETE: (
+        "The requested macro window has months absent from local storage. Returned values "
+        "describe only stored months; missing months are unavailable, not zero. Inspect "
+        "whole-window coverage and any continuation cursor. No automatic backfill occurs."
+    ),
+    LimitationCode.MISSING_VALUES: (
+        "Stored macro evidence includes an explicit source-missing value. It is unavailable, "
+        "not zero; inspect the native month, missing reason, source footnotes and receipts. "
+        "Do not substitute an earlier available value."
+    ),
+    LimitationCode.PARTIAL_RESULTS: (
+        "Only part of the requested macro history or locally observed versions was retrieved. "
+        "Use the continuation cursor or a narrower request. Pages are separate snapshots; "
+        "local versions do not establish historical publisher vintages."
+    ),
+}
+
+
+def partial_macro_history(evidence: list[ToolEvidence]) -> bool:
+    queries: dict[tuple[object, ...], tuple[bool, str | None]] = {}
+    key: tuple[object, ...]
+    for item in evidence:
+        page = item.result
+        if isinstance(page, MacroObservationPage):
+            key = (item.name, page.series.series_id, page.start, page.end)
+        elif isinstance(page, MacroVersionPage):
+            key = (item.name, page.series.series_id, page.month)
+        else:
+            continue
+        cursor = item.arguments["cursor"]
+        if cursor is None:
+            queries[key] = (True, page.next_cursor)
+        else:
+            started, expected = queries.get(key, (False, None))
+            queries[key] = (started and cursor == expected, page.next_cursor)
+    return any(not started or cursor is not None for started, cursor in queries.values())
+
+
 def partial_spread_history(evidence: list[ToolEvidence]) -> bool:
     windows: dict[tuple[date, date], tuple[bool, str | None]] = {}
     for item in evidence:
@@ -163,7 +214,9 @@ class AgentRunner:
         model_requests = tool_calls = 0
 
         def finish(code: LimitationCode | None, answer: str | None = None) -> AgentResult:
-            if code is None and partial_spread_history(evidence):
+            partial_macro = code is None and partial_macro_history(evidence)
+            partial_treasury = code is None and partial_spread_history(evidence)
+            if partial_macro or partial_treasury:
                 code = LimitationCode.PARTIAL_RESULTS
             explanation = MESSAGES.get(code) if code else None
             if (
@@ -180,6 +233,24 @@ class AgentRunner:
                 explanation = FUNDING_MESSAGES.get(code, explanation)
             elif code and evidence and isinstance(evidence[-1].result, OpenInterestLatest):
                 explanation = OI_MESSAGES.get(code, explanation)
+            if code and (
+                partial_macro
+                or (
+                    evidence
+                    and isinstance(
+                        evidence[-1].result, (MacroLatest, MacroObservationPage, MacroVersionPage)
+                    )
+                )
+            ):
+                explanation = MACRO_MESSAGES.get(code, explanation)
+            if partial_treasury:
+                explanation = MESSAGES[LimitationCode.PARTIAL_RESULTS]
+                if partial_macro:
+                    explanation = (
+                        "Requested Treasury and macro histories are only partly retrieved. "
+                        "Inspect each continuation cursor or narrow the requests; pages "
+                        "are separate snapshots and do not establish whole-window results."
+                    )
             return AgentResult(
                 status="limited" if code else "answered",
                 answer=explanation if explanation else (answer or ""),
@@ -277,7 +348,9 @@ class AgentRunner:
             seen_call_ids.add(call.call_id)
             tool_calls += 1
             try:
-                item = self.tools.execute(call.name, call.arguments, call.call_id)
+                item = self.tools.execute(
+                    call.name, call.arguments, call.call_id, evidence=evidence
+                )
             except ValueError, ValidationError:
                 return finish(LimitationCode.INVALID_ARGUMENTS)
             except SQLAlchemyError, UnknownMarketError:
@@ -327,6 +400,21 @@ class AgentRunner:
                     return finish(LimitationCode.NO_DATA)
                 if item.result.status == "stale":
                     return finish(LimitationCode.STALE)
+            elif isinstance(item.result, MacroLatest):
+                if item.result.observation is None:
+                    return finish(LimitationCode.NO_DATA)
+                if item.result.observation.status == "source_missing":
+                    return finish(LimitationCode.MISSING_VALUES)
+            elif isinstance(item.result, MacroObservationPage):
+                if item.result.coverage.status == "no_data":
+                    return finish(LimitationCode.NO_DATA)
+                if item.result.coverage.status == "incomplete":
+                    return finish(LimitationCode.INCOMPLETE)
+                if item.result.coverage.source_missing_values:
+                    return finish(LimitationCode.MISSING_VALUES)
+            elif isinstance(item.result, MacroVersionPage):
+                if item.result.observed_versions == 0:
+                    return finish(LimitationCode.NO_DATA)
             # Relay complete output items, including reasoning, for stateless continuation.
             history.extend(
                 cast(ResponseInputItemParam, output.model_dump(mode="json", exclude_none=True))
