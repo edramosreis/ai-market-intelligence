@@ -543,8 +543,8 @@ downloaded data in memory.
 The checkpoint passed 713 isolated deterministic tests (472 unit / 241 integration),
 including 124 new provider/domain cases, plus Ruff and strict mypy. Separate live 2024
 reads through both production clients returned twelve available months for each fixed
-series on 2026-10-08. Subsequent storage and manual-job checkpoints are described below;
-coverage queries/API and agent tools remain pending.
+series on 2026-10-08. Subsequent storage, manual-job and reader/API checkpoints are
+described below; agent tools remain pending.
 
 ### BLS transport and source evidence
 
@@ -711,8 +711,8 @@ values, dash/zero distinctions, unchanged provenance, successive corrections, om
 periods, receipt metadata, independent locks, stale reads, atomic rollback, controlled
 failures and reader snapshot consistency. The storage checkpoint passed 777 deterministic
 tests (483 unit / 294 integration), plus Ruff and strict mypy. At that checkpoint, revision
-0004 was applied only in isolated tests. Subsequent manual-job and development ingestion
-acceptance checkpoints are described below; reader/API integration remains pending.
+0004 was applied only in isolated tests. Subsequent manual-job, development ingestion
+acceptance and reader/API checkpoints are described below.
 
 A locally observed correction means that a changed value was received at a known local
 time. It does not establish when the publisher changed the value, which releases were
@@ -863,5 +863,10 @@ strict dates and cursor binding, actual reader credentials, native units/labels,
 and absent distinctions, whole-window gaps and truncation, unavailable latest values,
 unchanged receipt provenance, observed corrections/footnotes, snapshot consistency during
 concurrent correction and exact HTTP/query parity. All 906 isolated tests pass, with Ruff
-and strict mypy. Development HTTP checks and the review guide follow this implementation
-checkpoint without further provider requests.
+and strict mypy. `scripts/check_macro_api.py` separately compares the localhost API with
+reader SQL, without provider requests, writes or model calls. On 2026-10-09 its 2024
+samples matched all 36 native observations through three pages per series, latest evidence
+and locally observed versions. The shared 1954-07–2026-10 check matched 642 stored keys
+and 225 uncollected months per BLS series and all 867 Fed months. All 13 checked earlier
+and macro fact/catalog/audit fingerprints stayed unchanged. Remaining BLS ingestion is
+deferred; these stored HTTP checks do not consume its provider quota.

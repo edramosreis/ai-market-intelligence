@@ -21,7 +21,10 @@ and footnotes, and current-version pointers. `db/macro_store.py` atomically pers
 initial states and changed content, preserves unchanged provenance, reports retained
 omissions and rejects delayed older overlapping receipts. Manual `ingest-bls` and
 `ingest-fed` commands connect those providers to storage through `macro/jobs.py`,
-`macro/service.py` and `macro/cli.py`; reader/API and agent integration remain pending.
+`macro/service.py` and `macro/cli.py`. Native readers in `macro/queries.py` and evidence
+models in `macro/query_models.py` serve the fixed catalog, paginated current months,
+latest stored month and locally observed versions through four GET routes. Agent
+integration remains pending.
 `bls.py` reads the
 two fixed series through keyless v1; `fed.py` reads only the selected monthly series
 from bounded full-release ZIP/XML, without extraction or remote schema loading.
@@ -78,8 +81,24 @@ preserved earlier commits. Stop requests on quota rejection; resume after access
 without assuming a reset time or that command limits track shared daily usage. Reader
 checks verified six reusable older windows and two remaining fetch windows. Existing
 Coinbase/Treasury/Hyperliquid facts and audits match pre-migration fingerprints; the 2024
-macro facts/provenance also remain unchanged. Reader/API work and completion of the BLS
-backfill remain pending. No scheduler or paid model call was added.
+macro facts/provenance also remain unchanged. Completion of the BLS backfill remains
+pending until provider quota access returns. No scheduler or paid model call was added.
+
+The reader/API checkpoint passes 906 isolated tests (577 unit / 329 integration), Ruff
+and strict mypy. Use SELECT-only read-only REPEATABLE READ snapshots; metadata, coverage,
+content, notes, initial materialization and content-origin receipts must stay consistent
+during corrections. Monthly bounds are strict half-open YYYY-MM-01 labels, within each
+native lifetime and completed months, with API_MACRO_MAX_WINDOW_MONTHS (default/max 1200).
+Page limits are 1-100; bind cursors to series, query kind and exact window/month. Coverage
+describes the whole window; distinguish represented source-dash keys from absent stored
+months, and retain full counts when coalesced missing ranges are truncated at 100.
+Latest means latest stored completed month, including unavailable values; month lag is
+not collection age or a verified publication delay. Preserve original content receipts
+after replays/omissions, BLS notice/access dates, ordered footnotes and distinct source
+annotations/prepared text. Locally observed versions never establish retrospective
+publisher vintages or release-time/as-of claims. Do not add implicit forward filling,
+derived inflation, cross-source alignment or agent tools in this slice. The stored HTTP
+check uses reader SQL and no providers/models; separate pages are separate snapshots.
 
 ## Build, Test, and Development Commands
 
@@ -110,6 +129,7 @@ Run from the repository root; full installation instructions are in `README.md`.
 - `docker compose run --rm ingest ingest-fed --resume`: read full native monthly-rate history from 1954-07 once; latest completed month is always refetched.
 - `docker compose run --rm ingest ingest-fed --refresh`: replay full native monthly history from one full-release read.
 - `.venv\Scripts\python.exe -m market_intelligence ingest-fed --start 2024-01-01 --end 2025-01-01`: equivalent host Fed job; `ingest-bls` also works on the host.
+- `.venv\Scripts\python.exe scripts/check_macro_api.py`: opt-in stored 2024 macro HTTP/reader SQL parity, pagination, latest and observed versions; requires API/data, no provider requests, writes or model calls.
 - `.venv\Scripts\python.exe scripts/check_hyperliquid_api.py`: opt-in funding HTTP/source parity and stored OI receipt checks with reader credentials; no writes or model calls.
 - `.venv\Scripts\python.exe scripts/check_treasury_api.py`: opt-in stored HTTP pagination/rates/spreads versus fresh 1990/2020/2024 samples; requires API/backfill, performs no writes or model calls.
 - `docker compose run --rm ingest ingest-treasury --start 2024-01-01 --end 2024-02-01`: load/replay one Treasury month.

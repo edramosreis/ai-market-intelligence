@@ -16,7 +16,8 @@ provenance, appends meaningful value/missing/footnote changes and reports omitte
 without removing retained history. Delayed older overlapping receipts are rejected.
 Manual `ingest-bls` and `ingest-fed` jobs connect those providers to storage, with
 native history defaults, bounded reads, explicit refresh/resume and controlled failures.
-HTTP queries and agent tools follow as separate checkpoints. The
+Read-only HTTP queries expose the fixed catalog, current monthly observations, latest
+stored month and locally observed versions; agent tools follow separately. The
 design retains current historical values and corrections observed after local collection;
 it does not establish what was known before collection. See
 [the macro source contract](ARCHITECTURE.md#14-direct-monthly-macro-source-contract).
@@ -32,7 +33,7 @@ preserving native month-end labels, release prepared text and source annotations
 archive is extracted or saved; remote schemas are not loaded. A live 2024 sample through
 each implemented client returned 12 available months per series on 2026-10-08. This
 verifies the provider boundary, not historical publication/vintage coverage.
-All 838 isolated deterministic tests (523 unit / 315 integration), Ruff and strict
+All 906 isolated deterministic tests (577 unit / 329 integration), Ruff and strict
 mypy pass. This includes 124 native provider/domain cases and 64 new schema/persistence
 cases covering constraints, restricted roles, migration preservation, replay, corrections,
 omissions, independent locks, rollback, delayed receipts and reader snapshot consistency.
@@ -42,8 +43,10 @@ locally observed states, never retrospective publisher vintages. Revision `0004`
 applied to the local development database; new installations must apply it before API startup.
 Another 61 job/CLI cases verify native request windows, correction-aware resume,
 request limits, real provider parsing through writer transactions, controlled failure
-audits, earlier committed chunks and pre-configuration validation. No macro HTTP/agent
-endpoint is added yet. See [manual macro ingestion](#ingest-native-monthly-macro-history).
+audits, earlier committed chunks and pre-configuration validation. Another 68 reader/API
+cases verify monthly coverage, native evidence, cursors and consistent correction snapshots.
+See [manual macro ingestion](#ingest-native-monthly-macro-history) and
+[stored macro queries](#explore-stored-monthly-macro-data).
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -435,8 +438,71 @@ omissions. Fingerprints for all existing Coinbase, Treasury and Hyperliquid fact
 match the pre-migration baseline. The rebuilt API remains healthy with the agent disabled.
 No dataset files, scheduler or model calls were added. These checks establish the sampled
 ingestion/replay path and retained month keys; they do not establish historical release
-vintages or publication-calendar completeness. Macro reader/API acceptance follows
-separately.
+vintages or publication-calendar completeness. The stored reader/API check below uses
+no additional provider requests; the remaining BLS backfill is deferred.
+
+## Explore stored monthly macro data
+
+After migration `0004`, API startup and manual ingestion, use
+[Swagger UI](http://127.0.0.1:8000/docs) or these GET routes:
+
+| Route | Inputs and evidence |
+| --- | --- |
+| `/v1/macro/series` | Fixed native series, publisher, units, seasonal adjustment and actual retained month counts/bounds |
+| `/v1/macro/series/{series_id}/observations` | `start=2024-01-01&end=2025-01-01`; current values, full-window coverage, receipts and an optional continuation cursor |
+| `/v1/macro/series/{series_id}/latest` | Latest stored completed month, including a source-unavailable value, and explicit month lag |
+| `/v1/macro/series/{series_id}/versions` | `month=2024-01-01`; immutable versions observed locally, their provenance and current version number |
+
+Use `CUSR0000SA0` for CPI, `LNS14000000` for unemployment and `RIFSPFF_N.M` for Fed funds.
+The index, percent and percent-per-annum units and seasonal metadata remain native.
+Decimal values serialize as strings; Fed native month-end labels remain separate from
+the canonical first-of-month identity. Queries read only PostgreSQL, using the reader
+role; they make no provider or model requests.
+
+History bounds are first-of-month dates with an exclusive end. Requests start within
+the series' native lifetime and include only completed months. Configure
+`API_MACRO_MAX_WINDOW_MONTHS` separately from the existing day-based limits; its
+default/maximum is 1200 months, covering the full native history. Both paginated routes
+accept `limit` from 1 to 100. Supply the returned `next_cursor` with the same series and
+window or month. Each page is a separate repeatable snapshot; concurrent ingestion can
+change coverage between requests.
+
+Whole-window coverage distinguishes stored month keys, available values, explicit
+source-dash values and absent stored keys. An unavailable source value represents a
+month, while an absent key has no fabricated observation. Missing ranges are coalesced
+and capped at 100 with full range/month counts retained. `complete` refers to the
+represented native monthly grid; publication-calendar completeness remains unverified.
+
+Latest returns the latest stored month rather than skipping unavailable values. Its
+month lag is not a collection-age threshold or a verified publication delay. Content
+provenance identifies the original receipt that created each version; unchanged replays
+or retained omissions preserve it. Receipts include source access dates and metadata
+separately from observation footnotes. Neither receipt times nor Fed prepared text
+establish observation release times. Version history records content changes observed
+locally and does not reconstruct publisher vintages or historical market as-of states.
+Derived inflation and agent tools follow separate reviewed implementations.
+
+Run the opt-in stored-data check after the normal locked dependency installation:
+
+```powershell
+.venv\Scripts\python.exe scripts/check_macro_api.py
+```
+
+The script compares 2024 HTTP pagination, latest evidence and one month's observed
+versions with reader SQL, retaining downloaded responses only in memory. It requires a
+quiet stored dataset for comparisons across separate HTTP snapshots and performs no
+writes, provider requests or model calls. Optional `--start`/`--end` choose a shared
+native window; the development Docker target includes the script.
+
+Local verification on **2026-10-09** passed all 36 stored 2024 observations through three
+pages per series, with exact native content/footnote/version parity. The shared
+1954-07–2026-10 window matched 642 stored months and 225 uncollected months per BLS
+series, and all 867 Fed months. Latest and local-version evidence also matched reader
+SQL. All 13 existing and macro fact/catalog/audit table fingerprints stayed unchanged;
+the API is healthy and the agent remains disabled. All **906 deterministic tests**
+(577 unit / 329 integration), Ruff and strict mypy pass, including concurrent-correction
+snapshots and controlled 404/422/503 behavior. BLS's remaining ingestion still awaits
+provider quota availability; these HTTP checks consume none of that quota.
 
 ## Run tests
 
