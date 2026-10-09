@@ -38,8 +38,8 @@ cases covering constraints, restricted roles, migration preservation, replay, co
 omissions, independent locks, rollback, delayed receipts and reader snapshot consistency.
 The writer has INSERT-only access to immutable versions/footnotes; current rows reference
 those versions rather than duplicating their content. Local collection times establish
-locally observed states, never retrospective publisher vintages. Revision `0004` was
-verified only in isolated PostgreSQL; apply it before starting the updated reader/API.
+locally observed states, never retrospective publisher vintages. Revision `0004` is also
+applied to the local development database; new installations must apply it before API startup.
 Another 61 job/CLI cases verify native request windows, correction-aware resume,
 request limits, real provider parsing through writer transactions, controlled failure
 audits, earlier committed chunks and pre-configuration validation. No macro HTTP/agent
@@ -405,9 +405,38 @@ counts and identifiers, not downloaded datasets, SQL, credentials or model paylo
 No scheduler or model call is involved. Equivalent host jobs use
 `.venv\Scripts\python.exe -m market_intelligence ingest-bls` or `ingest-fed`.
 
-The commands have been verified using synthetic HTTP responses and isolated PostgreSQL.
-Development migration, real-source ingestion/backfill and reader/API acceptance remain
-separate checkpoints; existing source-only live samples do not establish this full path.
+### Local ingestion acceptance — 2026-10-09
+
+Explicit migration `0004` and reader-role readiness passed. Real 2024 loads stored 24 BLS
+observations and 12 Fed rates. Replays recorded separate audits with zero new versions;
+fingerprints confirmed unchanged content and original provenance. Fresh provider reads
+matched reader SQL for native period labels, Decimal values, missing reasons and footnotes.
+
+| Series | Retained local observations | Backfill state |
+| --- | --- | --- |
+| CPI | 732 available months: 1947–2006 and the separate 2024 sample | Remaining historical windows pending |
+| Unemployment | 720 available months: 1948–2006 and the separate 2024 sample | Remaining historical windows pending |
+| Fed funds | 867 available months: 1954-07 through 2026-09 | All requested native month keys present |
+
+BLS rejected the 2007–2016 window after six older windows committed. One bounded
+diagnostic confirmed daily-quota exhaustion; further BLS calls stopped. The unregistered
+API permits [25 queries per day](https://www.bls.gov/developers/api_faqs.htm), while the
+job's attempt cap covers only that invocation. No reset time was established. The failure
+audit contains `source_rejected`; earlier data and the verified 2024 sample remain intact.
+Reader-only resume checks confirmed six reusable older windows and two windows to fetch.
+Once provider access returns, rerun:
+
+```powershell
+docker compose run --rm ingest ingest-bls --resume
+```
+
+The remaining uncollected BLS months are local coverage gaps, not verified source
+omissions. Fingerprints for all existing Coinbase, Treasury and Hyperliquid facts/audits
+match the pre-migration baseline. The rebuilt API remains healthy with the agent disabled.
+No dataset files, scheduler or model calls were added. These checks establish the sampled
+ingestion/replay path and retained month keys; they do not establish historical release
+vintages or publication-calendar completeness. Macro reader/API acceptance follows
+separately.
 
 ## Run tests
 

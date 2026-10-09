@@ -43,8 +43,9 @@ Separate audit receipts still record replays. Versions, footnotes, current point
 successful counts commit together; controlled failure audits use a separate transaction.
 Keep independent provider write locks and stale-receipt protection even after an
 unchanged replay. An omitted period stays retained without fresh confirmation. Apply
-revision 0004 before starting the updated reader/API; this checkpoint applied it only
-in isolated tests. Keep strict requested-ID matching, duplicate JSON rejection,
+revision 0004 before starting the updated reader/API; it was explicitly applied to the
+development database on 2026-10-09 after preservation baselines were recorded.
+Keep strict requested-ID matching, duplicate JSON rejection,
 ten-inclusive-year BLS requests and validated/counted annual exclusions. Validate all
 Fed selected rows before window filtering and consume the complete data XML, including
 content after the selected series. Enforce compressed/decompressed/archive/work bounds,
@@ -67,6 +68,18 @@ Each fetch occurs after the running audit transaction closes. Preserve earlier s
 windows on failure and expose only controlled errors/audit state. Per-command HTTP limits
 (default 12 BLS / 3 Fed attempts, including retries) are not shared daily-quota guards.
 Reject refresh with resume/end and invalid bounds/budgets before configuration or network.
+
+Real-source ingestion acceptance on 2026-10-09 verified 2024 loads, unchanged replays and
+fresh reader/source content parity for all three series. Fed native history is stored as
+867 available months from 1954-07 through 2026-09. BLS backfill stored six complete older
+windows through 2006 plus the separate 2024 sample: 732 CPI and 720 unemployment months.
+Its 2007-2016 request hit the provider's daily quota, recorded `source_rejected`, and
+preserved earlier commits. Stop requests on quota rejection; resume after access returns,
+without assuming a reset time or that command limits track shared daily usage. Reader
+checks verified six reusable older windows and two remaining fetch windows. Existing
+Coinbase/Treasury/Hyperliquid facts and audits match pre-migration fingerprints; the 2024
+macro facts/provenance also remain unchanged. Reader/API work and completion of the BLS
+backfill remain pending. No scheduler or paid model call was added.
 
 ## Build, Test, and Development Commands
 

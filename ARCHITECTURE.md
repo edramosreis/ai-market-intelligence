@@ -708,9 +708,9 @@ The storage checkpoint adds 27 persistence cases (11 unit / 16 PostgreSQL) for e
 values, dash/zero distinctions, unchanged provenance, successive corrections, omitted
 periods, receipt metadata, independent locks, stale reads, atomic rollback, controlled
 failures and reader snapshot consistency. The storage checkpoint passed 777 deterministic
-tests (483 unit / 294 integration), plus Ruff and strict mypy. Revision 0004 was applied
-only in isolated tests. The subsequent manual-job checkpoint is described below;
-development migration/backfill and reader/API integration remain pending.
+tests (483 unit / 294 integration), plus Ruff and strict mypy. At that checkpoint, revision
+0004 was applied only in isolated tests. Subsequent manual-job and development ingestion
+acceptance checkpoints are described below; reader/API integration remains pending.
 
 A locally observed correction means that a changed value was received at a known local
 time. It does not establish when the publisher changed the value, which releases were
@@ -783,3 +783,27 @@ HTTP and preservation of earlier committed chunks. All 838 tests (523 unit / 315
 integration), Ruff and strict mypy pass. This checkpoint uses synthetic provider responses
 and isolated PostgreSQL only; development migration, real-source backfill, reader/API and
 agent acceptance follow separately.
+
+### Development ingestion acceptance
+
+On 2026-10-09, revision 0004 was explicitly applied to the development database after
+reader-only preservation baselines were recorded. The rebuilt API and reader readiness
+passed; the persistent agent remains disabled. Both manual jobs loaded 2024 native
+observations, then replayed them unchanged with separate receipt audits. Fresh source
+reads matched reader SQL for all 36 native period labels, values, missing reasons and
+footnotes. Fingerprints verified unchanged sample content and materialization provenance
+after replay and overlapping backfill.
+
+Fed's single full-release read stored all 867 monthly keys from 1954-07 through 2026-09.
+BLS committed six older windows through 2006 before the 2007-2016 request was rejected.
+A single diagnostic confirmed daily-quota exhaustion; no further BLS call was made.
+The retained BLS data has 732 CPI and 720 unemployment months, including the separate
+2024 sample. The unsuccessful window has a controlled `source_rejected` audit with no
+facts; the six preceding successful commits remain intact. Reader-only resume planning
+verified reuse of those six windows and refetch of the failed and recent windows once
+provider access returns. Uncollected months are not established source omissions.
+
+All eight earlier Coinbase/Treasury/Hyperliquid fact/audit tables match their pre-migration
+fingerprints. No downloaded dataset file, scheduler, macro HTTP endpoint or model call
+was introduced. These live checks establish sampled ingestion/replay behavior and observed
+stored month keys, not historical publication-calendar or retrospective vintage coverage.
