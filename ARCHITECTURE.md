@@ -963,22 +963,23 @@ ledger is closed and the persistent API remains disabled. Deterministic tests co
 source-missing values and concurrent corrections; these live samples do not guarantee
 arbitrary prose factuality.
 
-## 15. Proposed local scheduled ingestion
+## 15. Local scheduled ingestion
 
-Status: **design for review; scheduler code, revision `0005`, CLI commands and Compose
-service are not implemented or activated.** The provider jobs above remain manual.
+Status: **implemented and deterministically verified; disabled by default.** Revision
+`0005` adds operational metadata. Existing manual jobs remain available. Installation
+does not start unattended ingestion; deployment and activation are separate steps.
 
-### Execution boundary and proposed cadence
+### Execution boundary and cadence
 
 Use one Python service in the existing runtime image, with six fixed job definitions.
 The planner selects due UTC slots; a supervisor invokes existing ingestion commands as
 argument arrays with `shell=False`. A single child runs at a time. Python's documented
 [subprocess interface](https://docs.python.org/3.14/library/subprocess.html) supports
-explicit arguments, environment and process supervision. No new dependency is proposed.
+explicit arguments, environment and process supervision. No new dependency is needed.
 Keep provider parsing, monthly orchestration, validation and persistence in their current
 modules; scheduling owns dispatch decisions and execution evidence.
 
-| Fixed job | Proposed UTC slots | Existing command and bounded arguments |
+| Fixed job | UTC slots | Existing command and bounded arguments |
 | --- | --- | --- |
 | Coinbase BTC/USD | Every five minutes, one minute after the grid boundary | `ingest --refresh --chunk-seconds 60 --max-seconds 120` |
 | Hyperliquid current BTC OI | `:00`, `:15`, `:30`, `:45` each hour | `collect-open-interest --max-seconds 30` |
@@ -996,7 +997,7 @@ The scheduler does not substitute a historical backfill for a refresh.
 
 ### Explicit activation and credentials
 
-Propose a `scheduler` Compose profile and `SCHEDULER_ENABLED=false` by default, with
+Use a `scheduler` Compose profile and `SCHEDULER_ENABLED=false` by default, with
 an explicit allowlist of selected job IDs defaulting to empty. Reject unknown jobs and
 configuration before dispatch. Profiles alone are insufficient as an execution guard:
 Docker also starts an explicitly targeted service regardless of its profile activation.
@@ -1014,10 +1015,9 @@ Installing the feature does not authorize its unattended operation.
 
 ### Durable state and outcomes
 
-Propose revision `0005` with two operational tables, leaving all domain facts and audits
-unchanged:
+Revision `0005` creates two operational tables without modifying domain facts and audits:
 
-| Proposed table | Purpose and writer access |
+| Table | Purpose and writer access |
 | --- | --- |
 | `scheduler_job_state` | Six migration-seeded fixed job identities; schedule cursor/initialization time, pause reason, last dispatch/completion and BLS next-allowed time. Writer SELECT/UPDATE, no INSERT/DELETE. |
 | `scheduled_job_runs` | Unique job/UTC-slot decisions with run/owner UUIDs, schedule-definition fingerprint, coalesced-slot count, start/finish times, controlled outcome/error, exit code and validated domain audit UUIDs. Writer SELECT/INSERT/UPDATE, no DELETE. |
@@ -1029,7 +1029,8 @@ child; final outcome and any pause/cooldown changes also commit together. No tra
 spans provider HTTP. A successful command means its execution completed, not that its
 requested data window has complete coverage. Domain audit UUIDs retain that distinction.
 Store only validated operational metadata, never provider bodies, dataset rows, raw child
-output, credentials, prompts or answers.
+output, credentials, prompts or answers. Before linking a native audit, verify its actual
+table, source/instrument, status and start/finish times within the scheduler attempt.
 
 A dedicated session advisory lock admits one scheduler process, held in autocommit mode
 and separate from domain writer-lock keys. Session locks survive transaction boundaries
@@ -1061,8 +1062,8 @@ child. Termination cannot undo earlier committed chunks. Loss of ownership/datab
 access stops dispatch; an unfinished child outcome is `uncertain` and blocks that job
 until explicitly reconciled. Never replay an uncertain OI collection automatically.
 
-BLS starts excluded from activation until its deferred history/coverage checkpoint is
-resolved. Once explicitly enabled, admit at most one BLS refresh and enforce at least
+BLS history/coverage closeout is complete; it can now be selected explicitly. The default
+job selection remains empty. Once enabled, admit at most one BLS refresh and enforce at least
 24 hours after the prior child completion before another, persisted across restarts and
 pause/resume. Each command permits at most three HTTP attempts including provider retries.
 An unresolved attempt remains paused. On any `source_rejected`, pause BLS without
@@ -1071,15 +1072,52 @@ cause. BLS documents 25 daily queries and ten years per query for unregistered a
 but this scheduler policy neither measures external/manual usage nor proves remaining
 provider quota. [BLS API limits](https://www.bls.gov/developers/api_faqs.htm).
 
-### Planned review and acceptance
+### Controls, recovery and acceptance
 
-Proposed commands are `schedule preview` (configuration/planner only), `schedule status`
+Commands are `schedule preview` (configuration/planner only), `schedule status`
 (reader-only state/outcomes), `schedule run` (explicitly enabled dispatch), and fixed-job
-pause/resume controls. They are not available yet. Preview/status make no provider or
-model calls; resuming cannot erase attempts, cooldowns or unresolved outcomes.
+pause/resume controls. Preview/status make no provider or model calls; resuming cannot
+erase attempts or cooldowns. Inspect native audits after an uncertain outcome, then
+use `schedule resume JOB --reconcile-run UUID` to acknowledge that exact scheduler run.
+Its outcome stays `uncertain`, with a separate reconciliation timestamp. BLS also waits
+at least 24 hours from reconciliation. An ordinary resume cannot clear uncertainty or
+resume an unfinished child. Manual pause prevents future admission; it does not interrupt
+a child already running. Stopping the service interrupts and reaps that child instead.
 
-Before activation, verify slot/cooldown/coalescing behavior with injected clocks, bounded
-process supervision with synthetic children, and migration/constraints/grants/atomicity,
-duplicate runners and crash recovery against isolated PostgreSQL. Prove no open transaction
-during child execution and preserve all existing domain data/migrations. Then review one
-explicitly authorized bounded provider execution before any unattended schedule is started.
+If the BLS nominal slot arrives during cooldown, retain that due opportunity and dispatch
+once cooldown expires, coalescing to the latest slot. This may move its actual start after
+23:00 UTC. First enrollment waits for a future slot, even when activation lands exactly
+on a boundary. Fixed definition order is Coinbase, OI, funding, Treasury, Fed, BLS; selected
+jobs run sequentially. `--once` makes one admission pass and does not wait for future slots.
+The Linux supervisor uses nonblocking pipes, a 64 KiB combined bound and an 8 KiB line
+bound. It requests SIGINT at timeout/shutdown, allows five seconds, then kills the process
+group and reaps it. A lost leader session stops dispatch; its connection is physically
+closed rather than returned to the ordinary pool. No automatic container restart policy
+is enabled (`restart: "no"`).
+
+```mermaid
+flowchart TD
+    Config["Explicit enable + fixed selected jobs"] --> CLI["scheduler/cli.py"]
+    CLI --> Plan["scheduler/jobs.py: UTC slots"]
+    Plan --> Service["scheduler/service.py: one leader, sequential children"]
+    Service --> State["db/scheduler_store.py: atomic admission/completion"]
+    State --> DB[("0005: operational state and runs")]
+    Service --> Process["scheduler/process.py: bounded output/time, writer-only env"]
+    Process --> Native["Existing ingestion CLI"]
+    Native --> Sources["Existing native providers and validation"]
+    Sources --> Facts[("Existing domain facts and audits")]
+    Process --> Outcome["Controlled outcome + native audit UUIDs"]
+    Outcome --> State
+    Preview["schedule preview: configuration only"] --> Plan
+    Status["schedule status: reader snapshot"] --> DB
+```
+
+All 1060 isolated tests (680 unit / 380 integration), Ruff and strict mypy over 123 files
+pass. The 83 added cases verify UTC slots, cooldown/coalescing and backward clocks, enabled
+guards, synthetic child deadlines/output/shutdown, minimal environment, real PostgreSQL
+constraints/grants, atomic admission rollback, native audit validation, competing leaders,
+lost database ownership, explicit reconciliation and migration preservation. Actual reader
+status is SELECT-only in a read-only repeatable snapshot. Synthetic children observe the
+committed running intent and no writer session idle in a transaction. No live provider or
+model call, development migration or unattended activation is part of this checkpoint.
+Review a separately authorized bounded provider execution before unattended activation.

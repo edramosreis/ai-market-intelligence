@@ -139,6 +139,35 @@ factuality. No scheduler was implemented or activated by this closeout.
 
 ## Build, Test, and Development Commands
 
+Optional scheduling lives in `scheduler/`: six fixed definitions and a pure UTC planner,
+bounded Linux process supervision, sequential service orchestration and preview/status/
+run/pause/resume CLI controls. Revision `0005` seeds `scheduler_job_state` (writer SELECT/
+UPDATE only) and adds `scheduled_job_runs` (writer SELECT/INSERT/UPDATE, no DELETE).
+Reader access remains SELECT-only. `db/scheduler_store.py` commits cursor/intent before
+launch and outcome/pause/cooldown after completion; no transaction spans a child. Native
+audit links require actual source/instrument/status/time verification. A separate leader
+session uses autocommit, detects lost ownership and closes physically after release.
+Keep native writer locks and stale-receipt protection; no exactly-once claim or manual
+HTTP exclusion. First enrollment waits for future UTC slots; downtime coalesces to one
+latest eligible run per selected job, and clock rollback cannot repeat older slots.
+Uncertain attempts pause until explicit `--reconcile-run` acknowledgement, preserving
+their outcome; never automatically duplicate an uncertain OI receipt. BLS cooldown is
+at least 24 hours after child completion and after uncertainty reconciliation, durable
+across pause/resume/restart. Source rejection/invalid content pauses; known transient
+failures wait for the next slot without extra whole-command retries. Do not infer quota
+reset times or shared usage from local command limits.
+
+The opt-in Compose `scheduler` profile stays disabled with `SCHEDULER_ENABLED=false`,
+empty `SCHEDULER_JOBS` and no automatic restart policy. Active dispatch requires the
+Linux runtime container, no dotenv/admin/reader/model settings, and writer-only child
+environment. Preview needs no database; status uses reader read-only REPEATABLE READ.
+The supervisor bounds combined output to 64 KiB and lines to 8 KiB, discards raw text,
+adds 30 seconds to command deadlines, and interrupts/kills/reaps the child group with
+bounded grace. Apply migration `0005` before the updated API or scheduler; installing
+does not authorize activation. All 1060 deterministic tests (680 unit / 380 integration),
+Ruff and strict mypy pass. No live provider/model calls or development activation are
+part of scheduler acceptance; review a separately bounded live check before activation.
+
 Run from the repository root; full installation instructions are in `README.md`.
 
 - `python scripts/init_local_env.py`: create ignored `.env`, refusing overwrite.
@@ -149,6 +178,12 @@ Run from the repository root; full installation instructions are in `README.md`.
 - `docker compose run --rm check`: verify schema/market with reader credentials.
 - `docker compose up -d --wait api`: start localhost HTTP API after explicit migrations.
 - `docker compose stop api`: stop only the HTTP service.
+- `.venv\Scripts\python.exe -m market_intelligence schedule preview`: fixed definitions/future UTC slots, no database or provider/model calls.
+- `docker compose run --rm check schedule status --limit 20`: reader-only operational state after migration 0005.
+- `docker compose run --rm ingest schedule pause bls`: pause future dispatches; native manual jobs remain separate.
+- `docker compose run --rm ingest schedule resume bls`: resume a resolved fixed job, preserving cooldown; uncertainty requires inspected `--reconcile-run UUID`.
+- `docker compose --profile scheduler up -d scheduler`: explicit activation only after review, current migration, enabled flag and selected job configuration.
+- `docker compose stop scheduler`: stop supervision and interrupt/reap the active child.
 - `.venv\Scripts\python.exe -m market_intelligence serve`: equivalent host API on 127.0.0.1:8000.
 - `.venv\Scripts\python.exe scripts/check_market_api.py`: opt-in HTTP check of stored 2020/2024 history; requires API/backfill, performs no writes.
 - `docker compose run --rm ingest ingest --start 2024-01-01 --end 2024-01-02`: small live historical load/replay.

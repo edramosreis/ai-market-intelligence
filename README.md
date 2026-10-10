@@ -45,7 +45,8 @@ omissions, independent locks, rollback, delayed receipts and reader snapshot con
 The writer has INSERT-only access to immutable versions/footnotes; current rows reference
 those versions rather than duplicating their content. Local collection times establish
 locally observed states, never retrospective publisher vintages. Revision `0004` is also
-applied to the local development database; new installations must apply it before API startup.
+applied to the local development database; the updated API requires all revisions through
+current head `0005` before startup.
 Another 61 job/CLI cases verify native request windows, correction-aware resume,
 request limits, real provider parsing through writer transactions, controlled failure
 audits, earlier committed chunks and pre-configuration validation. Another 68 reader/API
@@ -54,6 +55,11 @@ Another 71 agent cases verify strict native arguments, server-issued continuatio
 exact SDK/HTTP/reader evidence, gaps, observed corrections and shared call budgets.
 See [manual macro ingestion](#ingest-native-monthly-macro-history) and
 [stored macro queries](#explore-stored-monthly-macro-data).
+
+Optional local scheduled ingestion is implemented with six fixed jobs, durable dispatch
+audits and explicit pause/recovery controls. It stays disabled by default, with no selected
+jobs. All **1060 isolated tests** (680 unit / 380 integration), Ruff and strict mypy pass.
+See [scheduled ingestion](#optional-local-scheduled-ingestion) before deployment or activation.
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -96,7 +102,7 @@ docker compose run --rm check
 ```
 
 Expected final output with the current migrations:
-`Database ready: revision=0004, markets=1, role=read`.
+`Database ready: revision=0005, markets=1, role=read`.
 
 `init-db` provisions restricted roles, applies Alembic revisions, and installs grants. Rerunning it does not duplicate reference data and applies current ingestion/reader passwords. Changing the administrator password in `.env` does **not** rotate an already initialized volume's password. Use this bootstrap only for the project's dedicated local database.
 
@@ -160,7 +166,7 @@ docker compose run --rm ingest ingest --refresh
 docker compose run --rm ingest ingest --start 2024-01-01 --end 2024-02-01
 ```
 
-Earlier history is subject to source availability. Date-only arguments mean midnight UTC; full timestamps must include `Z` or an explicit UTC offset. Both boundaries must align to five minutes, and `--end` is exclusive. An explicit end after the closed-candle cutoff is rejected. `--start` and `--refresh` are mutually exclusive. No scheduler or automatic refresh runs in the background.
+Earlier history is subject to source availability. Date-only arguments mean midnight UTC; full timestamps must include `Z` or an explicit UTC offset. Both boundaries must align to five minutes, and `--end` is exclusive. An explicit end after the closed-candle cutoff is rejected. `--start` and `--refresh` are mutually exclusive. Default configuration leaves scheduled/background refresh disabled.
 
 Each month gets a committed `running` audit before its first HTTP request. The entire chunk is fetched and validated before one transaction writes candles and marks the run successful. Malformed rows or conflicting duplicates fail the chunk. Earlier months remain committed. Failure output includes a safe error code, failed range, audit identity where available, and recovery instructions; it excludes provider bodies and credentials. If the failure audit cannot be written, `audit_recorded` is false and the original run can remain `running`.
 
@@ -441,7 +447,8 @@ Review the code in this order: `treasury/models.py` and `client.py` for native s
 
 ## Ingest native monthly macro history
 
-After rebuilding the runtime image and applying migration `0004` using the startup
+After rebuilding the runtime image and applying the current migration head (`0005`,
+including macro revision `0004`) using the startup
 commands above, run explicit manual jobs with ingestion credentials:
 
 ```powershell
@@ -537,7 +544,7 @@ retained native keys, not historical release vintages or publication-calendar co
 
 ## Explore stored monthly macro data
 
-After migration `0004`, API startup and manual ingestion, use
+After applying current migration head `0005` (including `0004`), API startup and manual ingestion, use
 [Swagger UI](http://127.0.0.1:8000/docs) or these GET routes:
 
 | Route | Inputs and evidence |
@@ -599,6 +606,89 @@ the API is healthy and the agent remains disabled. All **906 deterministic tests
 snapshots and controlled 404/422/503 behavior. BLS ingestion was still deferred at that
 checkpoint; these HTTP checks consume none of its quota. The interrupted BLS history was
 subsequently resumed and verified on 2026-10-10 as recorded above.
+
+## Optional local scheduled ingestion
+
+The scheduler decides when to run existing ingestion commands. Providers still fetch and
+validate native observations; domain stores still persist facts and collection audits.
+Revision `0005` adds only `scheduler_job_state` and `scheduled_job_runs`. A successful
+scheduled command does not certify complete source coverage.
+
+| Fixed job ID | Nominal UTC cadence | Refresh behavior |
+| --- | --- | --- |
+| `coinbase` | Every five minutes at `:01`, `:06`, etc. | Last 72 hours of completed candles |
+| `open_interest` | Every 15 minutes | One actual current OI receipt |
+| `funding` | Hourly at `:05` | Previous/current funding months |
+| `treasury` | Daily at `22:00` | Previous/current source months |
+| `fed` | Daily at `22:30` | Full native monthly H.15 history |
+| `bls` | Daily at `23:00`, subject to cooldown | Current year and preceding five years |
+
+These are polling times, not verified release calendars or freshness guarantees. The
+host/Docker must be running. Jobs run sequentially in the table's order. First enrollment
+waits for the first future slot. After downtime, run one latest eligible refresh per job
+and record skipped opportunities. Missing historical OI cannot be reconstructed; longer
+gaps beyond native refresh windows require explicit manual repair.
+
+`SCHEDULER_ENABLED=false`, an empty `SCHEDULER_JOBS`, the `scheduler` Compose profile and
+`restart: "no"` keep default operation disabled. The application guard also applies when
+the service is targeted explicitly. Only writer credentials reach the Linux supervisor
+and its children; it rejects host execution, a container dotenv file, administrator/reader
+credentials or model settings. No API/agent scheduling tool or Docker socket is exposed.
+
+Preview needs no database credentials, network or model:
+
+```powershell
+.venv\Scripts\python.exe -m market_intelligence schedule preview
+```
+
+After explicitly rebuilding and applying migration `0005`, inspect state using reader
+credentials or control a fixed job using writer credentials. These commands make no
+provider/model calls:
+
+```powershell
+docker compose run --rm check schedule status --limit 20
+docker compose run --rm ingest schedule pause bls
+docker compose run --rm ingest schedule resume bls
+```
+
+Source rejection/invalid content pauses the job. Known transient failures wait for the
+next slot without an extra whole-command retry. BLS waits at least 24 hours after every
+child completion, preserved across restart/pause/resume. If its nominal slot arrives
+during cooldown, it runs once cooldown expires; it is not a midnight quota-reset guess.
+Each BLS command permits at most three HTTP attempts including retries. Manual jobs and
+other consumers can still spend the provider's shared quota.
+
+Unfinished runs recovered after a crash become `uncertain` and stay paused. Inspect native
+audits and retained facts before explicitly acknowledging the scheduler run shown by
+status, using `schedule resume JOB --reconcile-run UUID`. That preserves its uncertain
+outcome and records reconciliation separately; BLS waits another 24 hours. Ordinary resume
+cannot clear an unresolved attempt or restart an unfinished child. This is not an
+exactly-once guarantee.
+
+The child budget adds 30 seconds to the fixed command deadline. Combined stdout/stderr
+is bounded at 64 KiB, individual event lines at 8 KiB; raw output is discarded. Only
+controlled statuses/codes and verified native audit UUIDs are saved. Timeout/shutdown
+requests SIGINT, waits five seconds, then kills/reaps the child process group. Earlier
+domain commits remain retained. Manual pause blocks new dispatches; stopping the service
+also interrupts the current child.
+
+For a separately reviewed activation, set `SCHEDULER_ENABLED=true` and choose a comma
+separated subset such as `SCHEDULER_JOBS=coinbase,open_interest,funding,treasury,fed,bls`.
+Rebuild/migrate before starting the updated API or scheduler. Perform a separately
+authorized bounded provider check, then start/stop explicitly:
+
+```powershell
+docker compose --profile scheduler up -d scheduler
+docker compose stop scheduler
+```
+
+`docker compose run --rm scheduler schedule run --once` makes one admission pass; on
+first enrollment it initializes state and returns without fetching. It can execute real
+due jobs on later passes and therefore requires the same explicit activation decision.
+The implementation checkpoint covers 83 new deterministic checks and all 1060 tests;
+no live provider/model check, development migration or unattended operation is claimed.
+The production image also passes preview and disabled-dispatch checks with networking
+disabled and no database credentials. The development API/data remain unchanged.
 
 ## Run tests
 
