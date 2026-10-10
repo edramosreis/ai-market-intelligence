@@ -18,6 +18,11 @@ TABLE_NAMES = (
     "funding_events",
     "open_interest_runs",
     "open_interest_snapshots",
+    "macro_series",
+    "macro_ingestion_runs",
+    "macro_observed_versions",
+    "macro_version_footnotes",
+    "macro_current",
 )
 
 
@@ -104,6 +109,8 @@ def grant_table_access(settings: DatabaseSettings) -> None:
                 "funding_events",
                 "funding_ingestion_runs",
                 "open_interest_runs",
+                "macro_ingestion_runs",
+                "macro_current",
             ):
                 conn.execute(
                     sql.SQL("GRANT INSERT, UPDATE ON TABLE public.{} TO {}").format(
@@ -115,5 +122,11 @@ def grant_table_access(settings: DatabaseSettings) -> None:
                     sql.Identifier(ingest_name)
                 )
             )
+            for table in ("macro_observed_versions", "macro_version_footnotes"):
+                conn.execute(
+                    sql.SQL("GRANT INSERT ON TABLE public.{} TO {}").format(
+                        sql.Identifier(table), sql.Identifier(ingest_name)
+                    )
+                )
     except psycopg.Error:
         raise RuntimeError("Database permission setup failed") from None

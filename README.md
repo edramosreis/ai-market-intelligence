@@ -7,9 +7,53 @@ A market research platform being built to collect historical data, produce repro
 Treasury ingestion, read-only curve queries, and agent tools are also implemented: daily nominal par yields with native dates, exact percentage values, explicit missing reasons, and current-value provenance. Deterministic agent tests and a separately inspected live acceptance batch verify curves, paginated spreads, mixed-source evidence, and controlled limitations.
 
 Hyperliquid BTC perpetual funding and locally collected open-interest snapshots are
-implemented, with manual ingestion, read-only queries and three agent tools. The agent
-has seven fixed tools across Coinbase, Treasury and Hyperliquid. Open interest records
+implemented, with manual ingestion, read-only queries and three agent tools. Together
+with native macro integration, the agent has ten fixed tools. Open interest records
 observed local receipts; historical open-interest reconstruction is outside this slice.
+
+The next macro component has a reviewed direct-source contract: BLS monthly CPI and
+unemployment, followed by the Federal Reserve Board's native monthly effective federal
+funds rate. Public source checks verified their observation history and explicit missing
+values. Both native provider clients and domain models are implemented with synthetic
+tests. Migration `0004` adds dedicated macro catalog, receipt audits, immutable observed
+versions/footnotes and current-version pointers. Atomic persistence preserves unchanged
+provenance, appends meaningful value/missing/footnote changes and reports omitted periods
+without removing retained history. Delayed older overlapping receipts are rejected.
+Manual `ingest-bls` and `ingest-fed` jobs connect those providers to storage, with
+native history defaults, bounded reads, explicit refresh/resume and controlled failures.
+Read-only HTTP queries expose the fixed catalog, current monthly observations, latest
+stored month and locally observed versions. Three narrow agent tools reuse those readers. The
+design retains current historical values and corrections observed after local collection;
+it does not establish what was known before collection. See
+[the macro source contract](ARCHITECTURE.md#14-direct-monthly-macro-source-contract).
+
+The opt-in `.venv\Scripts\python.exe scripts/check_bls_live.py --year 2024` checks one
+native year using the keyless API. It performs no database writes, saved downloads or
+model calls; the unregistered BLS API's request quotas apply. Existing locked dependencies
+suffice. Month identity, Decimal values, source-dash missing reasons and footnotes are
+retained; annual averages are excluded and counted. Local fetch/receipt times are not
+publication times. The separate `.venv\Scripts\python.exe scripts/check_fed_live.py --year 2024`
+reads the full H.15 ZIP/XML in bounded memory and returns the selected monthly-rate year,
+preserving native month-end labels, release prepared text and source annotations. No
+archive is extracted or saved; remote schemas are not loaded. A live 2024 sample through
+each implemented client returned 12 available months per series on 2026-10-08. This
+verifies the provider boundary, not historical publication/vintage coverage.
+All 977 isolated deterministic tests (623 unit / 354 integration), Ruff and strict
+mypy pass. This includes 124 native provider/domain cases and 64 new schema/persistence
+cases covering constraints, restricted roles, migration preservation, replay, corrections,
+omissions, independent locks, rollback, delayed receipts and reader snapshot consistency.
+The writer has INSERT-only access to immutable versions/footnotes; current rows reference
+those versions rather than duplicating their content. Local collection times establish
+locally observed states, never retrospective publisher vintages. Revision `0004` is also
+applied to the local development database; new installations must apply it before API startup.
+Another 61 job/CLI cases verify native request windows, correction-aware resume,
+request limits, real provider parsing through writer transactions, controlled failure
+audits, earlier committed chunks and pre-configuration validation. Another 68 reader/API
+cases verify monthly coverage, native evidence, cursors and consistent correction snapshots.
+Another 71 agent cases verify strict native arguments, server-issued continuations,
+exact SDK/HTTP/reader evidence, gaps, observed corrections and shared call budgets.
+See [manual macro ingestion](#ingest-native-monthly-macro-history) and
+[stored macro queries](#explore-stored-monthly-macro-data).
 
 The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
 
@@ -52,7 +96,7 @@ docker compose run --rm check
 ```
 
 Expected final output with the current migrations:
-`Database ready: revision=0003, markets=1, role=read`.
+`Database ready: revision=0004, markets=1, role=read`.
 
 `init-db` provisions restricted roles, applies Alembic revisions, and installs grants. Rerunning it does not duplicate reference data and applies current ingestion/reader passwords. Changing the administrator password in `.env` does **not** rotate an already initialized volume's password. Use this bootstrap only for the project's dedicated local database.
 
@@ -184,7 +228,7 @@ Query/API verification on **2026-10-05**: the full isolated PostgreSQL suite pas
 
 `POST /v1/agent/query` accepts one JSON question and returns `status`, `answer`, exact server-collected `evidence`, `limitations`, the configured `model`, retrieval time, and request/tool counts. Each request starts a fresh conversation. Inspect its schemas in [Swagger UI](http://127.0.0.1:8000/docs).
 
-The model selects from seven application-owned tools, backed by the same reader-role queries as the HTTP API:
+The model selects from ten application-owned tools, backed by the same reader-role queries as the HTTP API:
 
 | Tool | Inputs and evidence |
 | --- | --- |
@@ -195,6 +239,68 @@ The model selects from seven application-owned tools, backed by the same reader-
 | `get_latest_btc_funding` | No arguments; latest stored settled Hyperliquid BTC perpetual funding event, exact source milliseconds, derived UTC settlement hour and staleness |
 | `get_btc_funding_summary` | Inclusive `start`, exclusive `end`; complete UTC-hour windows from 2024, arithmetic rate sum/percent/mean and gap coverage |
 | `get_latest_btc_open_interest` | No arguments; latest stored Hyperliquid BTC perpetual OI receipt, BTC quantity, USDT context prices, local receipt identity/time and staleness |
+| `get_latest_macro_observation` | Fixed `series_id`; latest stored completed month, native value/units, month lag and original content receipt |
+| `get_macro_observation_history` | Fixed `series_id`, monthly `start`/`end`, nullable `cursor`; twenty current observations per page, whole-window monthly coverage, footnotes and receipts |
+| `get_macro_observed_versions` | Fixed `series_id`, exact `month`, nullable `cursor`; twenty locally observed immutable versions per page, current version number and content-origin receipts |
+
+Macro series are BLS `CUSR0000SA0` CPI index (1982–84=100), BLS `LNS14000000`
+unemployment percent, and FRB `RIFSPFF_N.M` monthly effective federal funds percent per
+annum. BLS series are seasonally adjusted; the Fed series is not. Monthly labels use
+completed `YYYY-MM-01` periods and half-open windows. CPI levels are not inflation rates.
+Latest means latest stored, with explicit month lag, including an unavailable value;
+it does not establish publisher-current data or verified publication delay.
+
+History and locally observed versions begin with cursor null. Continue only with the
+latest server-issued token for the same series/window or series/month. Tokens cannot
+cross tool kinds or questions, and completed queries retire them. Unfinished chains
+return `partial_results`; pages are separate snapshots. Whole-window coverage counts
+represented source-missing months separately from absent stored months. Empty storage,
+gaps and source-dash values return controlled limitations rather than fabricated values.
+Local versions/receipt times do not establish retrospective release vintages or past
+market knowledge. Original content receipts remain attached after unchanged replay or
+omission. No agent tool fetches providers, initiates ingestion, computes inflation,
+forward-fills or aligns sources automatically.
+
+Macro agent verification on **2026-10-09**: **977 deterministic tests** pass
+(**623 unit / 354 integration**), plus Ruff and strict mypy over 110 files. The 71 new
+cases include real reader-role PostgreSQL queries through HTTP and synthetic replies
+through the official SDK. They verify native units/month labels/notes, unavailable latest
+values, uncollected months, twenty-row continuations, shared budgets and exact evidence
+after correction/replay/omission during model waits. Reader connections are released
+before those waits. This deterministic checkpoint used no live provider/model calls.
+The persistent agent remains disabled.
+
+Merge readiness was rechecked on **2026-10-10** with the updated master dependencies:
+OpenAI SDK 3.24.0, SQLAlchemy 2.1.3 and mypy 2.4.0. All 977 isolated tests, Ruff and strict
+types pass. The agent uses the SDK's public timeout type; synthetic model transports use
+the SDK's HTTPX2 client interface, declared in the development dependencies. Provider
+clients continue using HTTPX. This compatibility check made no live provider/model calls.
+
+Separate macro live acceptance on **2026-10-09** used `gpt-6-luna`, the actual agent
+HTTP handler and reader-role queries. Eleven cases passed exact tool-evidence comparison
+against the native HTTP readers and separate manual inspection:
+
+| Cases | Accepted behavior |
+| --- | --- |
+| Three native 2024 histories | CPI index, unemployment percent and monthly effective federal funds percent per annum; correct adjustment, periods and collection-time limits |
+| Latest stored CPI and Fed observations | Actual stored month and month lag, without publisher-current or publication-delay claims |
+| Empty and partly collected windows | Distinct `no_data`/`incomplete` limitations, retaining requested bounds and absent months |
+| Twenty-row history continuation | All 24 months retrieved across two pages with exact server-issued cursors |
+| History exceeding the shared budget | Three pages retain 60 of 72 months; `partial_results` and continuation evidence remain explicit |
+| Locally observed version history | Exact native content and original collection/materialization receipt, without historical publisher-vintage or market-knowledge claims |
+| BTC/Treasury/CPI question | Three independently attributed sources and native windows/units within the existing shared budget |
+| Source-marked missing CPI month (2026-10-10 follow-up) | Actual 2025-10 source dash, native footnote/receipt and `missing_values`, without zero or substituted data |
+
+No production-code repair was needed. All 13 development fact/catalog/audit table
+fingerprints stayed unchanged, and no reader connection was held during model calls.
+The eleven initial cases made no provider requests and preserved the then-deferred BLS
+backfill. After BLS collection, the twelfth scoped case on **2026-10-10** passed exact
+native HTTP evidence comparison and manual inspection of the controlled source-missing
+response. It used one model request and one reader tool; the server returned
+`missing_values` without a model prose continuation. All 13 table fingerprints stayed
+unchanged. The cumulative macro acceptance ledger is closed; the persistent agent remains
+disabled. Deterministic tests also cover this behavior and corrections. Inspection of
+these bounded cases does not guarantee arbitrary answer prose.
 
 Application code fixes the Coinbase market, Treasury dataset, and native Hyperliquid BTC perpetual. Server validation rejects unknown functions, extra/duplicate arguments, unsupported date/timestamp formats, invalid cursors, and oversized windows. The history tool starts with `cursor: null`, then follows returned `next_cursor` values with unchanged bounds. Its strict schema offers only null and the latest server-issued continuation for each queried window, avoiding transcription of opaque tokens. Whole-window coverage counts stored source dates and all normalized tenors, not calendar completeness or only benchmark rates; only each page's observations identify its returned dates. Separate pages are separate snapshots. An answer is accepted only after a data tool executes; its separate evidence preserves exact decimals, source, period, provenance, and coverage. The agent cannot run SQL, ingest, browse, write, or choose another dataset.
 
@@ -332,6 +438,167 @@ The opt-in HTTP check compares January 1990/2020/2024 to fresh validated source 
 On 2026-10-06, January 1990/2020/2024 each matched all **294 rates** and **42 benchmark values/spreads** across **three pages**. Existing Coinbase 2020/2024 daily and hourly HTTP checks also passed after the history extension. At that checkpoint the full **388-test** isolated PostgreSQL suite, formatting, linting, and strict type checks passed. Agent calls remain disabled locally; those source checks are separate from Treasury agent execution tests.
 
 Review the code in this order: `treasury/models.py` and `client.py` for native source semantics; migration `0002`, `db/treasury_store.py`, and `treasury/service.py` for persistence/replay; `treasury/query_models.py` and `queries.py` for evidence/calculations; then the Treasury routes in `api.py`, `agent/` adapters/instructions/runner, and matching unit/integration tests. Live check scripts are separate from the synthetic deterministic fixtures.
+
+## Ingest native monthly macro history
+
+After rebuilding the runtime image and applying migration `0004` using the startup
+commands above, run explicit manual jobs with ingestion credentials:
+
+```powershell
+docker compose run --rm ingest ingest-bls --start 2024-01-01 --end 2025-01-01
+docker compose run --rm ingest ingest-fed --start 2024-01-01 --end 2025-01-01
+```
+
+Dates must be first-of-month `YYYY-MM-01`; windows are half-open and end no later than
+the current month's start. A completed observation month can still be absent because
+publication lags or data is unavailable. Source-dash values, absent months and retained
+omissions are reported separately. Current history and changes collected locally do
+not establish retrospective publisher vintages or publication times.
+
+| Command policy | BLS CPI/unemployment | Fed monthly effective federal funds |
+| --- | --- | --- |
+| Default history | 1947-01; unemployment begins in 1948-01 | 1954-07 |
+| Fetch windows | At most ten inclusive years per request | One full-release ZIP/XML read for the requested window |
+| `--refresh` | Current year plus preceding five years, covering CPI revision history | All native monthly history; the release download already contains it |
+| `--resume` | Reuse verified complete older windows; refetch windows touching the revision region | Reuse verified complete older explicit windows; refetch any window including the latest completed month |
+
+```powershell
+docker compose run --rm ingest ingest-bls --resume
+docker compose run --rm ingest ingest-bls --refresh
+docker compose run --rm ingest ingest-fed --resume
+docker compose run --rm ingest ingest-fed --refresh
+```
+
+Each command accepts configurable `--start`/`--end`, `--window-seconds` (default 180),
+`--max-seconds` (default 900), `--request-interval` (default 3; range 3–60) and
+`--max-requests` (default 12 BLS / 3 Fed; range 1–25). The request limit counts retries
+and all fetches through that command's client. It does not track other processes,
+earlier commands or the provider's daily quota. Exhaustion reports `retry_exhausted`
+with request usage and a separate `request_budget_exhausted` flag. Refresh cannot be
+combined with `--start`, `--end` or `--resume`. Bounds/modes/budgets are validated before
+configuration, database or network access.
+
+Resume checks the latest relevant overlapping audit, exact bounds, expected native
+month keys and stored counts in one repeatable snapshot. A later failed/running attempt,
+a gap or a read retaining omitted periods forces a refetch. Explicit unavailable values
+still represent source-returned month keys. Skipped reads preserve their old receipt
+provenance and report zero new writes; they do not establish fresh confirmation. Changes
+outside the BLS refresh region require an explicit replay without resume. Fed's default
+window includes the latest completed month and therefore always reads the release again.
+
+Successful windows commit independently. Download/parsing occur between short database
+transactions; no connection is held during HTTP. Versions, footnotes, current pointers
+and success counts commit together. A failure preserves earlier committed windows and
+attempts a separate controlled failure audit. JSON progress/recovery output contains
+counts and identifiers, not downloaded datasets, SQL, credentials or model payloads.
+No scheduler or model call is involved. Equivalent host jobs use
+`.venv\Scripts\python.exe -m market_intelligence ingest-bls` or `ingest-fed`.
+
+### Local ingestion acceptance — 2026-10-09–10
+
+Explicit migration `0004` and reader-role readiness passed. Real 2024 loads stored 24 BLS
+observations and 12 Fed rates. Replays recorded separate audits with zero new versions;
+fingerprints confirmed unchanged content and original provenance. Fresh provider reads
+matched reader SQL for native period labels, Decimal values, missing reasons and footnotes.
+
+| Series | Retained local observations | Backfill state |
+| --- | --- | --- |
+| CPI | 956 represented months: 1947-01 through 2026-08; 955 available | Historical resume completed; 2026-09 absent from the returned response |
+| Unemployment | 945 represented months: 1948-01 through 2026-09; 944 available | All requested native month keys present |
+| Fed funds | 867 available months: 1954-07 through 2026-09 | All requested native month keys present |
+
+BLS initially rejected the 2007–2016 window after six older windows committed. One bounded
+diagnostic confirmed daily-quota exhaustion; further BLS calls stopped. The unregistered
+API permits [25 queries per day](https://www.bls.gov/developers/api_faqs.htm), while the
+job's attempt cap covers only that invocation. No reset time was established. The failure
+audit contains `source_rejected`; earlier data and the verified 2024 sample remain intact.
+On 2026-10-10, access returned and this bounded resume reused the six older windows and
+completed both remaining reads in two HTTP attempts:
+
+```powershell
+docker compose run --rm ingest ingest-bls --resume --max-requests 3 --max-seconds 600
+```
+
+The job inserted 449 monthly records, preserved 24 unchanged overlapping observations
+and recorded no corrections or retained omissions. Both BLS series retain an explicit
+unavailable October 2025 value and its source footnote. September 2026 CPI was absent
+from the successful response and remains unstored; this does not establish a publication
+delay or justify filling it. The interrupted historical backfill is resolved.
+
+Two fresh BLS reads matched all 473 resumed-window keys, exact native labels/values,
+missing reasons and ordered notes against reader SQL. Native API/SQL checks also matched
+history pages, coverage, latest and observed versions. Fingerprints preserve all earlier
+Coinbase/Treasury/Hyperliquid facts/audits, original macro content/catalog/audits and the
+2024 sample's provenance. Reader-only resume planning now reuses seven older windows
+while always refetching the recent revision region. The API remains healthy and disabled.
+No dataset files, scheduler or production-code repair was added. The separate scoped
+agent follow-up is recorded above. These checks establish sampled ingestion/replay and
+retained native keys, not historical release vintages or publication-calendar completeness.
+
+## Explore stored monthly macro data
+
+After migration `0004`, API startup and manual ingestion, use
+[Swagger UI](http://127.0.0.1:8000/docs) or these GET routes:
+
+| Route | Inputs and evidence |
+| --- | --- |
+| `/v1/macro/series` | Fixed native series, publisher, units, seasonal adjustment and actual retained month counts/bounds |
+| `/v1/macro/series/{series_id}/observations` | `start=2024-01-01&end=2025-01-01`; current values, full-window coverage, receipts and an optional continuation cursor |
+| `/v1/macro/series/{series_id}/latest` | Latest stored completed month, including a source-unavailable value, and explicit month lag |
+| `/v1/macro/series/{series_id}/versions` | `month=2024-01-01`; immutable versions observed locally, their provenance and current version number |
+
+Use `CUSR0000SA0` for CPI, `LNS14000000` for unemployment and `RIFSPFF_N.M` for Fed funds.
+The index, percent and percent-per-annum units and seasonal metadata remain native.
+Decimal values serialize as strings; Fed native month-end labels remain separate from
+the canonical first-of-month identity. Queries read only PostgreSQL, using the reader
+role; they make no provider or model requests.
+
+History bounds are first-of-month dates with an exclusive end. Requests start within
+the series' native lifetime and include only completed months. Configure
+`API_MACRO_MAX_WINDOW_MONTHS` separately from the existing day-based limits; its
+default/maximum is 1200 months, covering the full native history. Both paginated routes
+accept `limit` from 1 to 100. Supply the returned `next_cursor` with the same series and
+window or month. Each page is a separate repeatable snapshot; concurrent ingestion can
+change coverage between requests.
+
+Whole-window coverage distinguishes stored month keys, available values, explicit
+source-dash values and absent stored keys. An unavailable source value represents a
+month, while an absent key has no fabricated observation. Missing ranges are coalesced
+and capped at 100 with full range/month counts retained. `complete` refers to the
+represented native monthly grid; publication-calendar completeness remains unverified.
+
+Latest returns the latest stored month rather than skipping unavailable values. Its
+month lag is not a collection-age threshold or a verified publication delay. Content
+provenance identifies the original receipt that created each version; unchanged replays
+or retained omissions preserve it. Receipts include source access dates and metadata
+separately from observation footnotes. Neither receipt times nor Fed prepared text
+establish observation release times. Version history records content changes observed
+locally and does not reconstruct publisher vintages or historical market as-of states.
+Derived inflation remains outside this implementation. Native macro agent tools reuse
+these same readers; see [the agent contract](#ask-questions-through-the-agent).
+
+Run the opt-in stored-data check after the normal locked dependency installation:
+
+```powershell
+.venv\Scripts\python.exe scripts/check_macro_api.py
+```
+
+The script compares 2024 HTTP pagination, latest evidence and one month's observed
+versions with reader SQL, retaining downloaded responses only in memory. It requires a
+quiet stored dataset for comparisons across separate HTTP snapshots and performs no
+writes, provider requests or model calls. Optional `--start`/`--end` choose a shared
+native window; the development Docker target includes the script.
+
+Local verification on **2026-10-09** passed all 36 stored 2024 observations through three
+pages per series, with exact native content/footnote/version parity. The shared
+1954-07–2026-10 window matched 642 stored months and 225 uncollected months per BLS
+series, and all 867 Fed months. Latest and local-version evidence also matched reader
+SQL. All 13 existing and macro fact/catalog/audit table fingerprints stayed unchanged;
+the API is healthy and the agent remains disabled. All **906 deterministic tests**
+(577 unit / 329 integration), Ruff and strict mypy pass, including concurrent-correction
+snapshots and controlled 404/422/503 behavior. BLS ingestion was still deferred at that
+checkpoint; these HTTP checks consume none of its quota. The interrupted BLS history was
+subsequently resumed and verified on 2026-10-10 as recorded above.
 
 ## Run tests
 
@@ -543,7 +810,7 @@ a fresh public source read, and independently matches the latest OI HTTP receipt
 reader SQL. It requires the funding sample and one OI collection already stored.
 All 541 isolated tests pass, including migrations, grants, replay, gaps, rollback,
 query arithmetic, HTTP serialization, cursor binding, OI ties, and concurrent snapshots.
-The agent now has seven fixed tools: the existing BTC/Treasury tools plus latest
+At the Hyperliquid checkpoint the agent had seven fixed tools: BTC/Treasury plus latest
 settled funding, complete-hour funding summaries, and latest stored OI. The separate
 2026-10-08 live agent acceptance above inspected all three tools and their limitations.
 

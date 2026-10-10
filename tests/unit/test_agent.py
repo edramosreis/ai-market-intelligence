@@ -5,7 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Any, cast
 
-import httpx
+import httpx2 as httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -29,6 +29,7 @@ from tests.agent_fakes import (
     function,
     hyperliquid_queries,
     latest,
+    macro_queries,
     message,
     queries,
     response,
@@ -43,7 +44,7 @@ WINDOW = json.dumps({"start": START.isoformat(), "end": END.isoformat()})
 def runner(model: Any, data: Any, **overrides: Any) -> AgentRunner:
     return AgentRunner(
         model,
-        MarketTools(data, treasury_queries(), hyperliquid_queries()),
+        MarketTools(data, treasury_queries(), hyperliquid_queries(), macro_queries()),
         configured(**overrides),
         now=lambda: NOW,
     )
@@ -301,7 +302,7 @@ def test_deadline_stops_further_work(stage: str) -> None:
     with model.client() as client:
         agent = AgentRunner(
             client,
-            MarketTools(data, treasury_queries(), hyperliquid_queries()),
+            MarketTools(data, treasury_queries(), hyperliquid_queries(), macro_queries()),
             configured(),
             now=lambda: NOW,
             monotonic=lambda: clock[0],
@@ -372,7 +373,7 @@ def test_expired_tool_does_not_bypass_evidence_size_limit() -> None:
     with model.client() as client:
         agent = AgentRunner(
             client,
-            MarketTools(data, treasury_queries(), hyperliquid_queries()),
+            MarketTools(data, treasury_queries(), hyperliquid_queries(), macro_queries()),
             configured(max_tool_output_bytes=1024),
             now=lambda: NOW,
             monotonic=lambda: clock[0],
@@ -513,7 +514,10 @@ def test_http_maps_service_failure_and_preserves_evidence(unavailable: bool) -> 
         )
         with TestClient(app) as http:
             app.state.agent_runner.tools = MarketTools(
-                cast(MarketQueries, queries()), treasury_queries(), hyperliquid_queries()
+                cast(MarketQueries, queries()),
+                treasury_queries(),
+                hyperliquid_queries(),
+                macro_queries(),
             )
             reply = http.post("/v1/agent/query", json={"question": "Window return?"})
         assert not client.is_closed()

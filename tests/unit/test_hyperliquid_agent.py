@@ -38,6 +38,7 @@ from tests.agent_fakes import (
     FakeModel,
     function,
     hyperliquid_queries,
+    macro_queries,
     message,
     queries,
     response,
@@ -139,7 +140,10 @@ def test_tools_relay_exact_native_evidence_without_using_other_domains(
     )
     with model.client() as client:
         result = AgentRunner(
-            client, MarketTools(btc, treasury, perpetual), settings(), now=lambda: NOW
+            client,
+            MarketTools(btc, treasury, perpetual, macro_queries()),
+            settings(),
+            now=lambda: NOW,
         ).run("Stored perpetual evidence?")
     assert result.status == "answered" and result.limitations == []
     assert not btc.mock_calls and not treasury.mock_calls
@@ -179,7 +183,7 @@ def test_invalid_arguments_stop_before_reader_execution(name: str, arguments: st
     with model.client() as client:
         result = AgentRunner(
             client,
-            MarketTools(queries(), treasury_queries(), perpetual),
+            MarketTools(queries(), treasury_queries(), perpetual, macro_queries()),
             settings(),
             now=lambda: NOW,
         ).run("Funding?")
@@ -211,7 +215,7 @@ def test_funding_bounds_are_validated_by_shared_reader_before_database_access(
         with model.client() as client:
             result = AgentRunner(
                 client,
-                MarketTools(queries(), treasury_queries(), perpetual),
+                MarketTools(queries(), treasury_queries(), perpetual, macro_queries()),
                 settings(),
                 now=lambda: NOW,
             ).run("Funding?")
@@ -264,7 +268,7 @@ def test_native_limitations_retain_evidence_and_stop_further_model_requests(cond
     with model.client() as client:
         result = AgentRunner(
             client,
-            MarketTools(queries(), treasury_queries(), perpetual),
+            MarketTools(queries(), treasury_queries(), perpetual, macro_queries()),
             settings(),
             now=lambda: NOW,
         ).run("Current funding or OI?")
@@ -287,7 +291,10 @@ def test_three_domain_tools_share_existing_call_and_request_budget() -> None:
     )
     with model.client() as client:
         result = AgentRunner(
-            client, MarketTools(queries(), treasury_queries(), data()), settings(), now=lambda: NOW
+            client,
+            MarketTools(queries(), treasury_queries(), data(), macro_queries()),
+            settings(),
+            now=lambda: NOW,
         ).run("Report sources separately.")
     assert result.status == "answered" and len(result.evidence) == 3
     assert result.model_requests == 4 and result.tool_calls == 3
@@ -307,7 +314,7 @@ def test_database_failures_are_sanitized(name: str) -> None:
     with model.client() as client:
         result = AgentRunner(
             client,
-            MarketTools(queries(), treasury_queries(), perpetual),
+            MarketTools(queries(), treasury_queries(), perpetual, macro_queries()),
             settings(),
             now=lambda: NOW,
         ).run("Private question")
@@ -318,7 +325,7 @@ def test_database_failures_are_sanitized(name: str) -> None:
 def test_instructions_preserve_native_units_times_and_unsupported_calculations() -> None:
     prompt = instructions(NOW)
     for text in (
-        "seven supplied",
+        "ten supplied",
         "complete UTC hours",
         "exact millisecond",
         "longs pay shorts",

@@ -241,7 +241,19 @@ Latest-data staleness defaults to age exceeding 900 seconds (`API_STALE_AFTER_SE
 
 Use the official Python SDK and Responses API with a short, application-owned function-calling loop. The application executes functions requested by the model and returns their outputs using the corresponding call identifiers. Explicit strict function schemas require closed objects and required fields. [OpenAI function-calling guide](https://developers.openai.com/api/docs/guides/function-calling), [official SDK documentation](https://developers.openai.com/api/docs/libraries).
 
-Expose only `get_latest_btc_candle()`, `get_btc_window_summary(start, end)`, `get_treasury_curve(observed_on)`, `get_treasury_spread_history(start, end, cursor)`, `get_latest_btc_funding()`, `get_btc_funding_summary(start, end)`, and `get_latest_btc_open_interest()`. Hyperliquid tools fix the native BTC perpetual and reuse its reader queries with exact signed funding fractions and local OI receipt evidence. Tools bind BTC to the configured Coinbase BTC/USD market and canonical five-minute interval, and Treasury to its nominal par-yield dataset; the model cannot select an arbitrary table, SQL expression, or network target. Pydantic validates arguments again on the server, including time/date boundaries, cursor binding, and range limits. BTC summaries can reference historical dates anywhere in the stored range; they do not send all constituent candles to the model. Treasury uses native source dates, not candle timestamps. Arithmetic stays in Python/SQL.
+Expose only the ten reviewed tools: `get_latest_btc_candle()`,
+`get_btc_window_summary(start, end)`, `get_treasury_curve(observed_on)`,
+`get_treasury_spread_history(start, end, cursor)`, `get_latest_btc_funding()`,
+`get_btc_funding_summary(start, end)`, `get_latest_btc_open_interest()`,
+`get_latest_macro_observation(series_id)`,
+`get_macro_observation_history(series_id, start, end, cursor)` and
+`get_macro_observed_versions(series_id, month, cursor)`. Each adapter reuses its native
+reader queries. BTC binds to Coinbase spot BTC/USD and canonical five-minute candles;
+Treasury binds to nominal par yields, Hyperliquid to the native BTC perpetual, and macro
+to its three fixed BLS/FRB series. The model cannot select an arbitrary table, SQL
+expression or network target. Pydantic validates arguments again on the server, including
+native time/date boundaries, cursor binding and range limits. BTC summaries send bounded
+metrics rather than all candles. Arithmetic stays in Python/SQL.
 
 Runner controls enforce one question per request, at most three tools/four model requests, sequential execution, a 60-second execution budget, and input/output limits. A per-process nonblocking lock admits one agent request; a busy request returns 503. SDK retries are disabled and timeouts use the remaining budget. Deadlines are checked between synchronous operations; an in-flight operation must return before the check, so this is not guaranteed cancellation at 60 seconds. Database reads end before waiting for model responses; integration tests confirm the reader pool has no checked-out connection during those calls.
 
@@ -269,7 +281,7 @@ Recommend Python **3.14** and PostgreSQL **18**, with exact supported patch/imag
 | [SQLAlchemy 2 Core](https://docs.sqlalchemy.org/en/20/core/) + [psycopg 3](https://www.psycopg.org/psycopg3/docs/) | Explicit relational queries, connections, exact decimals, PostgreSQL upserts | Direct psycopg SQL is leaner; accept Core's dependency for composable queries and schema metadata, without ORM sessions/relationships |
 | [Alembic](https://alembic.sqlalchemy.org/en/latest/) | Reviewed, versioned schema evolution | Handwritten versioned SQL also works; Alembic adds setup but a familiar migration history. Review migrations; do not trust autogeneration blindly |
 | [HTTPX](https://www.python-httpx.org/) | HTTP timeouts, client lifecycle, and injectable test transports | requests is reasonable for synchronous ingestion; choose one direct HTTP library |
-| Official OpenAI SDK | Responses API integration | Raw HTTP exposes more protocol boilerplate; the bounded seven-tool loop does not require LangChain, LangGraph, or an agent framework |
+| Official OpenAI SDK | Responses API integration | Raw HTTP exposes more protocol boilerplate; the bounded ten-tool loop does not require LangChain, LangGraph, or an agent framework |
 | [pytest](https://docs.pytest.org/en/stable/) | Focused unit and PostgreSQL integration tests | unittest avoids a dependency; pytest fixtures make injected clients and database setup concise |
 | [Ruff](https://docs.astral.sh/ruff/) + [mypy](https://mypy.readthedocs.io/en/stable/) | Reproducible formatting, linting, and type checks | Separate formatter/linter tools or Pyright are valid; use a single formatter and one type checker |
 | Docker Compose | Local PostgreSQL and reproducible app/job execution | Host-only processes are lighter but harder to reproduce; no Kubernetes or local cloud emulator |
@@ -452,3 +464,501 @@ though the source reads succeeded. Existing Coinbase/Treasury values and provena
 matched pre-migration fingerprints. Runtime migration/API checks passed with the agent
 disabled and without model calls or archive access. These observations establish this
 local accepted data path, not universal source retention or arbitrary-model factuality.
+
+## 14. Direct monthly macro source contract
+
+Status: **native models, provider clients, macro schema and atomic persistence
+implemented with manual ingestion jobs, read-only HTTP queries and bounded native
+agent adapters. Native BLS backfill resumed successfully on 2026-10-10; all twelve
+scoped live agent cases are accepted, including source-marked missing content.**
+Use direct original publishers for three fixed monthly series. This
+contract selects current historical values and locally observed corrections; it does
+not establish retrospective publication or vintage history.
+
+| Provider and native series | Observation | Native unit | Adjustment |
+| --- | --- | --- | --- |
+| BLS `CUSR0000SA0` | CPI-U, all items, US city average | Index, 1982–84=100 | Seasonally adjusted |
+| BLS `LNS14000000` | Civilian unemployment rate, age 16 and over | Percent | Seasonally adjusted |
+| Federal Reserve Board H.15 `RIFSPFF_N.M` | Monthly effective federal funds rate | Percent per annum | Not seasonally adjusted |
+
+BLS's [CPI series convention](https://www.bls.gov/cpi/factsheets/cpi-series-ids.htm)
+identifies population, adjustment, area and item codes. Its
+[unemployment history](https://www.bls.gov/cps/prev_yrs.htm) identifies the monthly
+seasonally adjusted series from 1948. Direct reads of the
+[CPI catalog](https://download.bls.gov/pub/time.series/cu/cu.series) and
+[labor-force catalog](https://download.bls.gov/pub/time.series/ln/ln.series) independently
+confirmed the fixed series, adjustment, CPI base period and native history bounds.
+The Board's
+[official crosswalk](https://www.federalreserve.gov/data/documents/DDP-FRED%20Data%20Series%20Crosswalk.csv)
+maps `H15,RIFSPFF_N.M,FEDFUNDS`; this identifies the monthly effective rate, without
+introducing a FRED data dependency. The
+[H.15 footnotes](https://www.federalreserve.gov/releases/h15/) define the monthly
+rate using every calendar day, and describe the March 2016 change in the underlying
+daily EFFR methodology. Ingest the published monthly values; do not replace them with
+a business-day mean, a policy target rate, or a Treasury yield.
+
+```mermaid
+flowchart TD
+    Window[macro/models.py: half-open monthly window] --> BLS[macro/bls.py: fixed CPI and unemployment]
+    Window --> Fed[macro/fed.py: full-release ZIP and selected monthly rate]
+    BLS --> Transport[macro/_http.py: bounded streams, pacing, retries and deadlines]
+    Fed --> Transport
+    Transport --> Sources[BLS v1 and Federal Reserve Board H.15]
+    Sources --> Validate[Strict native JSON and complete safe data XML validation]
+    Validate --> Contract[macro/models.py: monthly observations and local receipt evidence]
+    Contract --> Store[db/macro_store.py: compare and commit atomically]
+    Store --> Current[(macro_current: version pointers)]
+    Store --> Revisions[(Immutable versions, footnotes and receipt audits)]
+    Current --> Reader[Read-only snapshots and explicit coverage]
+    Revisions --> Reader
+    Reader --> API[Native macro HTTP queries]
+    API -. planned .-> Agent[Later reviewed agent adapters]
+    Limits[No historical release or vintage claim] -. constrains .-> Reader
+```
+
+### Implemented provider boundary
+
+`macro/models.py` fixes the three native identities, units and seasonal metadata.
+`MonthlyWindow` uses half-open month-aligned dates; observations retain a separate
+native period string and exact Decimal value. BLS dash observations carry
+`source_dash`; absent months produce no fabricated observation. `ProviderRead` records
+aware UTC fetch/receipt times, excluded annual-average count, source messages and latest
+hints separately from observations. Fed prepared text and series annotations remain
+release/series metadata. None of these fields establishes per-observation publication
+or retrospective vintage availability.
+
+`macro/bls.py` validates both complete requested year responses before clipping to the
+logical month window. Unknown/duplicate fields, series and periods fail; native M13
+annual averages are validated, excluded and counted. The response hint `latest` does
+not enter monthly fact equality. Empty requested series and bounded source messages
+are retained without a calendar-completeness claim.
+
+`macro/fed.py` accepts at most 20 MB of ZIP bytes, ten distinct root XML/XSD members
+and 100 MB of declared aggregate uncompressed size. Only `H15_data.xml` is read, with
+a 90 MB declared/actual byte limit, UTF-8 validation, DTD/entity rejection, depth 32,
+two million element starts and ten thousand selected monthly periods at most. Archive
+encryption, symlinks and unsupported compression fail. The streaming XML parser validates
+the fixed selected namespace, native metadata, month-end labels and available status,
+including selected observations outside the requested window. It consumes the entire
+data member/document and verifies its CRC before returning; malformed later content
+cannot be accepted because the target series appeared earlier. Discarded nodes are
+removed to keep memory bounded. Series annotations are retained separately from BLS
+per-observation footnotes.
+
+Both clients share `macro/_http.py`, with three attempts and three-second request pacing
+by default, bounded transient retries/Retry-After, disabled redirects, streamed byte
+limits and an injected monotonic deadline. Attempts, clocks, sleep and jitter are
+injectable; failures expose controlled codes. Pacing is local to one client instance
+and is not a provider daily-quota guard. Provider code has no database dependencies.
+The standalone opt-in source scripts use existing locked dependencies and keep all
+downloaded data in memory.
+
+The checkpoint passed 713 isolated deterministic tests (472 unit / 241 integration),
+including 124 new provider/domain cases, plus Ruff and strict mypy. Separate live 2024
+reads through both production clients returned twelve available months for each fixed
+series on 2026-10-08. Subsequent storage, manual-job, reader/API and native agent
+checkpoints are described below.
+
+### BLS transport and source evidence
+
+The [unregistered v1 API](https://www.bls.gov/developers/api_signature.htm) accepts
+year-bounded POST requests for up to ten inclusive years. No API key is required for
+this boundary. Fixed requests contain only the two selected IDs and start/end years,
+without provider-side transformations. On 2026-10-08, eight sequential requests covering
+1947–2026 returned these native monthly labels:
+
+| Series | First month | Latest returned month | Returned months | Available values |
+| --- | --- | --- | ---: | ---: |
+| `CUSR0000SA0` | 1947-01 | 2026-08 | 956 | 955 |
+| `LNS14000000` | 1948-01 | 2026-09 | 945 | 944 |
+
+Both spans had consecutive month labels, with one explicitly unavailable October 2025
+value (`-`) and a source footnote. These are observed source results, not an assurance
+of future availability. Additional one-year reads verified the 1946/1947 boundaries,
+1990, 2020, 2024 and current-year samples. An HTTP 200 and `REQUEST_SUCCEEDED` can still
+include no-data messages or unavailable values. Keep those distinct from an empty,
+absent series, transport failure or malformed response. The live envelope used a
+`Results` object; parsing must not assume a response is valid from its success status
+alone.
+
+Retain `year`/`M01`–`M12` as the observation month, exact Decimal values, and footnote
+code/text. Empty footnote objects mean no supplied footnote. Optional `latest="true"`
+marks the latest observation in that response; it is not publication metadata and
+should not make unchanged historical values count as corrections. Exclude documented
+annual `M13` observations explicitly, with an audit count; never turn them into a
+thirteenth month. Unknown periods, duplicate months/series, mismatched IDs, out-of-range
+rows and invalid values fail validation. Preserve the documented
+[missing-value marker](https://www.bls.gov/bls/bls-handling-of-missing-data.htm) and its
+footnotes without zero filling or interpolation. CPI index levels are distinct from
+calculated inflation; any later percent-change calculation requires the exact input
+months and their available values.
+
+BLS's [seasonal-adjustment policy](https://www.bls.gov/cpi/seasonal-adjustment/)
+allows annual revisions to the preceding five years of CPI. A later refresh policy
+must revisit a suitable historical range; replaying only the latest two months would
+not detect those older corrections. Explicit replays remain necessary for changes
+outside the chosen refresh range.
+
+BLS [API terms](https://www.bls.gov/developers/termsOfService.htm) require access-date
+attribution and the notice: “BLS.gov cannot vouch for the data or analyses derived from
+these data after the data have been retrieved from BLS.gov.” Include both in future
+query evidence and documentation; preserve native values and label derived calculations.
+
+### Federal Reserve transport and source evidence
+
+The Board's [download notice](https://www.federalreserve.gov/data/data-download-fred-information.htm)
+says historical XML remains available from statistical release pages after custom
+package removal in November 2026; preformatted packages are also slated for removal.
+Use the full-release XML boundary, not custom series CSV URLs or twelve-month packages.
+The current [H.15 download page](https://www.federalreserve.gov/datadownload/Choose.aspx?rel=H15)
+links the full-release SDMX ZIP at
+`https://www.federalreserve.gov/datadownload/Output.aspx?rel=H15&filetype=zip`.
+This URL worked during the review; recheck the published release link if the download
+location changes as DDP retires. A download location is not a guaranteed permanent API.
+
+The reviewed ZIP contained five members, was 4,284,680 compressed bytes, and included
+a 70,816,775-byte `H15_data.xml`. Its selected series had `FREQ=129`, `INSTRUMENT=FF`,
+`MATURITY=O`, `CURRENCY=NA`, `UNIT=Percent:_Per_Year` and `UNIT_MULT=1`. The complete data
+XML parsed successfully and returned 867 consecutive available monthly values from
+1954-07 through 2026-09, all with `OBS_STATUS=A`. January 1990/2020/2024 values were
+8.23/1.55/5.33 percent. These source checks held all data in memory and made no database
+writes. Only the selected monthly series belongs in the later persistence boundary.
+
+XML `TIME_PERIOD` values are month-end dates (for example `2024-01-31`), whereas BLS
+uses year/month labels. Preserve each native label and normalize a separate month
+identity; month-end is not an observation release timestamp. The header's
+`Prepared=2026-10-07T15:40:04` has no UTC offset and is release-level metadata. Preserve
+it as source text if needed, without assigning UTC or using it as each row's release
+time. Record aware UTC local fetch and receipt times separately.
+
+Bound both compressed HTTP bytes and decompressed XML bytes, archive member counts,
+read deadlines and parsing work. Read only the exact data member without extracting
+archive paths to disk or loading remote XSDs. The companion structure XML contains a
+DOCTYPE declaration and was left unparsed; it is not needed to validate the fixed
+series against this reviewed contract. Reject DTD/entities in the data XML, truncated
+archives/documents, duplicate selected series/months, unexpected native metadata and
+unsupported observation statuses. The selected sample has no missing values; any
+future missing-status handling must be verified against the native contract rather
+than storing the `-9999` sentinel seen in other H.15 series as a real rate.
+
+Attribute the Board under its [website terms](https://www.federalreserve.gov/disclaimer.htm).
+The provider review does not authorize publishing downloaded datasets.
+
+### Correction and timing policy
+
+Revision `0004` adds five dedicated tables in `db/macro_tables.py`:
+
+| Table | Grain and purpose |
+| --- | --- |
+| `macro_series` | Fixed publisher/series identities, native units, adjustment and earliest month |
+| `macro_ingestion_runs` | Requested monthly window, lifecycle/counts, local fetch/receipt times and source metadata |
+| `macro_observed_versions` | Publisher/series/month/version: immutable native content with receipt and materialization provenance |
+| `macro_version_footnotes` | Ordered code/text footnotes attached to the same immutable version |
+| `macro_current` | Publisher/series/month: pointer to the current immutable version |
+
+Current values are obtained by joining the pointer to its version. Composite foreign
+keys prevent linking to a different publisher/series/month, so the current value and
+version history cannot diverge through duplicated content. Version one records the
+first locally collected content; subsequent numbers order locally observed changes,
+not publisher releases. First materialization is available from version one; a current
+version's audit provides its local fetch/receipt times. Neither is a publication time.
+
+The catalog is SELECT-only for both restricted roles. The ingestion role receives
+INSERT-only on versions/footnotes, INSERT/UPDATE on current pointers and audits, and no
+DELETE; the reader receives SELECT only. PostgreSQL enforces native month labels, series
+identity, available/missing semantics, finite values, bounded footnotes, monthly windows
+and audit lifecycle/counts. The immutable migration includes independent publisher seeds.
+Thirty-seven new PostgreSQL checks verify constraints, grants, upgrade preservation of
+all existing source facts and agreement with Core metadata.
+
+`db/macro_store.py` accepts a validated `ProviderRead` after HTTP completes. A short
+transaction creates a running audit first. Persistence acquires a transaction-scoped
+provider lock, checks the running audit/window/times and rejects a receipt older than
+any successful overlapping read. This protects current data even when the newer read
+was unchanged or omitted stored periods. Non-overlapping windows remain independent;
+BLS and Fed use separate locks. These are local ordering guards, not publisher revision
+times or job scheduling.
+
+An initial observation creates version one; a meaningful value, missing reason or
+footnote code/text change appends a new version and moves the current pointer. Decimal
+formatting and footnote order alone are unchanged content. The original footnote order
+is retained in each version. BLS latest hints and Fed prepared text/series annotations
+stay on their receipt audits, so changed response metadata alone does not create an
+observation version. An identical replay preserves the original version/materialization
+provenance but records its own local fetch/receipt audit. Omitted stored periods remain
+retained and are reported as exact series/month pairs without fresh source confirmation.
+
+Versions, footnotes, current pointers and successful audit counts commit atomically. A
+storage failure rolls them all back, leaving the separately started audit running; the
+caller can record a controlled failure in a separate transaction. Sanitized codes never
+contain SQL, credentials or provider payloads. Macro jobs own that orchestration
+and failure handling through the manual ingestion contract described below.
+
+```mermaid
+sequenceDiagram
+    participant Job as ingest_macro manual job
+    participant Source as BLS or Fed client
+    participant Store as MacroStore
+    participant DB as PostgreSQL
+    Job->>Store: start_run(provider, window, local start)
+    Store->>DB: Commit running audit
+    Job->>Source: Read and validate native monthly content
+    Source-->>Job: ProviderRead with local fetch/receipt times
+    Job->>Store: persist(run, provider, read, local finish)
+    Store->>DB: BEGIN; provider lock; audit and stale-receipt checks
+    Store->>DB: Compare current content; append changed versions and notes
+    Store->>DB: Move current pointers; finish successful audit
+    alt All operations succeed
+        Store->>DB: COMMIT facts, versions and counts together
+        Store-->>Job: Exact write/retained-period report
+    else Validation, ordering or database failure
+        Store->>DB: ROLLBACK persistence transaction
+        Store-->>Job: Controlled error
+        Job->>Store: fail_run with controlled code
+        Store->>DB: Commit separate failure audit
+    end
+```
+
+The storage checkpoint adds 27 persistence cases (11 unit / 16 PostgreSQL) for exact
+values, dash/zero distinctions, unchanged provenance, successive corrections, omitted
+periods, receipt metadata, independent locks, stale reads, atomic rollback, controlled
+failures and reader snapshot consistency. The storage checkpoint passed 777 deterministic
+tests (483 unit / 294 integration), plus Ruff and strict mypy. At that checkpoint, revision
+0004 was applied only in isolated tests. Subsequent manual-job, development ingestion
+acceptance and reader/API checkpoints are described below.
+
+A locally observed correction means that a changed value was received at a known local
+time. It does not establish when the publisher changed the value, which releases were
+missed between collections, or what users knew during earlier years. Month labels,
+footnotes, prepared times and local receipt times cannot answer an unverified historical
+as-of question. No implicit cross-source alignment, forward filling, scheduler or new
+agent tool is introduced. Native history defaults are defined in the manual ingestion
+contract below rather than inherited from Coinbase's 2020 setting.
+
+### Manual ingestion jobs
+
+`macro/jobs.py` fixes full native history defaults: BLS from 1947-01 (unemployment's
+expected keys begin in 1948-01), Fed from 1954-07. `macro/cli.py` validates half-open
+first-of-month bounds before configuration or I/O. Both commands default to the current
+month's start as exclusive end, so only completed observation periods are retained.
+Completion of a month is separate from whether its value has been published.
+
+BLS splits the configured history into requests spanning at most ten inclusive years,
+with each validated window committed independently. A partial first year still counts
+toward that ten-year limit. Fed uses a single logical window and one full-release read,
+rather than repeatedly downloading the archive for individual months. Both retain the
+reviewed native metadata and only the three selected series.
+
+`--refresh` replays the current year and previous five years for BLS, covering the
+documented CPI seasonal revision region for both selected series. Fed refresh replays
+the whole native monthly history, since the full download already includes it. Earlier
+BLS corrections outside this region require explicit replay. No missed intermediate
+publisher revisions can be reconstructed from these replays.
+
+`MacroStore.completed()` uses one repeatable snapshot of audits/current content for
+resume. It rejects any overlapping running audit, requires the latest overlapping
+finished attempt to be successful for the exact requested window, and verifies received
+count, no retained omissions, every expected native series/month key and unavailable
+count. Explicit BLS dash months count as represented keys; absent periods prevent reuse.
+An older complete success cannot hide a newer failed, partial or omitted-period read.
+BLS windows touching the revision region always refetch; Fed windows including the latest
+completed month always refetch. Skipped historical reads establish no new receipt time or
+fresh confirmation. A retained omission remains distinguishable from a newly returned key.
+
+`macro/service.py` closes each audit/resume transaction before HTTP. Provider transaction
+locks and stale-receipt checks continue to protect persistence, allowing no older delayed
+read to replace a newer receipt. Each command has its own client request counter, bounded
+to 12 BLS / 3 Fed HTTP attempts by default (including retries); this is not a shared daily
+quota guard or a scheduler. Positive finite per-window/overall deadlines are injected
+for tests. After a failure, earlier commits remain and the running audit is failed in a
+separate transaction when possible; failed audit persistence does not mask the original
+controlled error. Interrupted commands exit 130; other controlled failures exit 1.
+
+```mermaid
+flowchart TD
+    CLI[cli.py: ingest-bls or ingest-fed] --> Plan[macro/cli.py and jobs.py: validate bounds and budgets]
+    Plan --> Job[macro/service.py: iterate native request windows]
+    Job --> Resume{Eligible historical resume?}
+    Resume -->|yes| Check[MacroStore.completed: audit and current-key snapshot]
+    Check -->|complete and verified| Skip[Report previous read with zero new writes]
+    Check -->|cannot reuse| Start[Commit running audit]
+    Resume -->|no| Start
+    Start --> Fetch[Reviewed BLS or Fed client: bounded HTTP and parsing]
+    Fetch --> Read[ProviderRead: temporary native observations and receipt evidence]
+    Read --> Store[MacroStore.persist: versions, footnotes, pointers and success audit]
+    Store -->|atomic commit| DB[(PostgreSQL)]
+    Fetch -->|controlled failure| Failed[Record separate failure audit when possible]
+    Store -->|rollback and controlled failure| Failed
+```
+
+The job/CLI checkpoint adds 61 deterministic cases (40 unit / 21 PostgreSQL) verifying
+native window planning, correction-aware resume, request counters, pre-configuration
+validation, real parser/store/CLI execution, separate failure audits, no connection during
+HTTP and preservation of earlier committed chunks. All 838 tests (523 unit / 315
+integration), Ruff and strict mypy pass. This checkpoint uses synthetic provider responses
+and isolated PostgreSQL only; development migration, real-source backfill, reader/API and
+agent acceptance follow separately.
+
+### Development ingestion acceptance
+
+On 2026-10-09, revision 0004 was explicitly applied to the development database after
+reader-only preservation baselines were recorded. The rebuilt API and reader readiness
+passed; the persistent agent remains disabled. Both manual jobs loaded 2024 native
+observations, then replayed them unchanged with separate receipt audits. Fresh source
+reads matched reader SQL for all 36 native period labels, values, missing reasons and
+footnotes. Fingerprints verified unchanged sample content and materialization provenance
+after replay and overlapping backfill.
+
+Fed's single full-release read stored all 867 monthly keys from 1954-07 through 2026-09.
+BLS committed six older windows through 2006 before the 2007-2016 request was rejected.
+A single diagnostic confirmed daily-quota exhaustion; no further BLS call was made.
+The retained BLS data has 732 CPI and 720 unemployment months, including the separate
+2024 sample. The unsuccessful window has a controlled `source_rejected` audit with no
+facts; the six preceding successful commits remain intact. Reader-only resume planning
+verified reuse of those six windows and refetch of the failed and recent windows once
+provider access returns. Uncollected months are not established source omissions.
+
+All eight earlier Coinbase/Treasury/Hyperliquid fact/audit tables match their pre-migration
+fingerprints. No downloaded dataset file, scheduler, macro HTTP endpoint or model call
+was introduced. These live checks establish sampled ingestion/replay behavior and observed
+stored month keys, not historical publication-calendar or retrospective vintage coverage.
+
+### BLS backfill closeout — 2026-10-10
+
+Provider access returned on the next explicitly requested attempt. Resume verified and
+reused the six older windows, then read [2007-01-01, 2017-01-01) and
+[2017-01-01, 2026-10-01) in two HTTP attempts. The two successful transactions inserted
+449 months, preserved 24 unchanged overlapping observations and recorded no corrections
+or retained omissions. The original quota failure remains in the audit history.
+
+CPI has 956 represented months from 1947-01 through 2026-08, with 955 available values;
+unemployment has 945 from 1948-01 through 2026-09, with 944 available values. Both have an
+explicit unavailable 2025-10 source dash and its ordered publisher footnote. CPI 2026-09
+was absent from the successful recent response and remains unstored. This observed absence
+does not establish a publication delay, permit substitution or prevent closing the
+interrupted historical backfill. Future refreshes continue to collect current native
+values and locally observed changes under the existing contract.
+
+Two separate fresh reads matched all 473 resumed-window observations against reader SQL:
+exact period labels, Decimal values, missing reasons and ordered source notes. Native
+HTTP/SQL pagination, whole-window coverage, latest and versions matched across the
+2007-01–2026-10 window. Fingerprints reconstruct the unchanged original five macro tables
+while excluding the two new receipts and their new content; all eight earlier domain
+tables and overlapping 2024 provenance also remain unchanged. Macro storage now contains
+2,768 current keys and immutable versions, three footnotes and fourteen receipt audits.
+Reader-only resume planning now reuses seven historical windows and still fetches the
+recent revision region. No source dataset file, scheduler or production-code repair was
+introduced by this closeout.
+
+### Native monthly readers and HTTP
+
+`macro/queries.py` reads through the existing SELECT-only role. Catalog, current pointer,
+immutable content, version-one materialization, ordered footnotes and content-origin
+receipts are selected in one read-only REPEATABLE READ transaction per response. A
+correction committed during a response cannot mix old coverage with new values, notes,
+version numbers or receipt provenance. Connections close before results leave the query.
+Different pages are separate snapshots; cursors do not pin a history snapshot.
+
+| Route | Native result |
+| --- | --- |
+| `GET /v1/macro/series` | Three fixed series with publisher, native units, adjustment, earliest native month and actual retained month counts/bounds |
+| `GET /v1/macro/series/{series_id}/observations` | Current stored monthly values, whole-window coverage, paginated content and deduplicated content receipts |
+| `GET /v1/macro/series/{series_id}/latest` | Latest stored completed month, including an explicit unavailable value; month lag from the latest completed month |
+| `GET /v1/macro/series/{series_id}/versions` | Paginated immutable versions for one month, with current version number and local change evidence |
+
+History bounds and version labels use strict `YYYY-MM-01` dates. Requested history starts
+within each series' native lifetime, uses a half-open window and includes only completed
+months. `API_MACRO_MAX_WINDOW_MONTHS` is a separate configurable request-width bound
+(default/maximum 1200); Coinbase/Treasury day limits are not reused. Both paginated
+readers allow 1–100 rows and use keyset cursors bound to the series, query kind and exact
+window or month. Unknown series return controlled 404, invalid queries 422 and database
+failures sanitized 503. JSON Decimal values remain strings; native Fed month-end labels
+and the canonical first-of-month identity remain distinct.
+
+Coverage counts the canonical native month grid, represented keys, available values,
+explicit source-missing values and absent stored keys separately. A source dash counts
+as a represented month with no available value. Absent ranges are coalesced, returned
+at most 100 at a time and retain full range/month counts when truncated. Coverage and
+first/last bounds describe the entire requested window, including on later pages;
+observations identify only returned page months. Grid completeness does not establish a
+publication calendar. No observation is fabricated for an absent month.
+
+Latest means the latest stored month, not the publisher's BLS `latest` response hint or
+the latest available non-null value. It excludes uncompleted stored months. Its explicit
+month lag is neither collection age nor a verified publication delay; no crypto-style
+stale threshold or unverified release schedule is applied.
+
+Version provenance exposes initial and version materialization times plus the receipt
+that created its content. Replays and omitted months do not relabel an unchanged version
+as freshly verified. Receipts retain access dates, original requested bounds, fetch and
+receipt times, source messages/hints, timezone-free Fed prepared text and source/series
+annotations separately from observation footnotes. BLS evidence includes its attribution
+notice. Receipt times are local collection evidence, not per-observation publication time.
+Version history describes changes observed locally, never retrospective publisher vintages
+or an unverified historical market as-of view. Inflation calculations, source alignment,
+forward filling and new agent tools are separate work.
+
+The reader/API checkpoint adds 68 deterministic cases (54 unit / 14 PostgreSQL) for
+strict dates and cursor binding, actual reader credentials, native units/labels, dash/zero
+and absent distinctions, whole-window gaps and truncation, unavailable latest values,
+unchanged receipt provenance, observed corrections/footnotes, snapshot consistency during
+concurrent correction and exact HTTP/query parity. All 906 isolated tests pass, with Ruff
+and strict mypy. `scripts/check_macro_api.py` separately compares the localhost API with
+reader SQL, without provider requests, writes or model calls. On 2026-10-09 its 2024
+samples matched all 36 native observations through three pages per series, latest evidence
+and locally observed versions. The shared 1954-07–2026-10 check matched 642 stored keys
+and 225 uncollected months per BLS series and all 867 Fed months. All 13 checked earlier
+and macro fact/catalog/audit fingerprints stayed unchanged. Remaining BLS ingestion was
+deferred at that checkpoint; the subsequent BLS closeout above resolves it. Stored HTTP
+checks do not consume provider quota.
+
+### Native macro agent adapters
+
+Three read-only adapters reuse the accepted native readers: latest stored observation,
+current monthly history and immutable versions observed locally for one month. Arguments
+select only the three catalog series; history/version pages are fixed at twenty rows.
+Dates use completed YYYY-MM-01 months. Strict schemas offer null and only the latest
+server-issued continuation for each queried series/window or series/month, separately
+by tool kind. The server also rejects unissued, transplanted, retired and cross-question
+cursors before reader execution. Unfinished histories return partial_results even if a
+later tool reads another domain. Pages remain separate snapshots.
+
+The allowlist grows from seven to ten while preserving three tool calls, four model
+requests, existing context/output/deadline limits, sequential execution and SELECT-only
+readers. No provider call, ingestion action or new calculation is exposed. Empty storage,
+uncollected months and source-marked unavailable values return distinct controlled
+limitations with exact collected evidence. Latest retains an unavailable month rather
+than substituting an earlier value. A nonzero month lag is evidence, not a verified
+publication delay or a crypto-style staleness classification.
+
+Instructions retain native CPI index versus inflation, monthly effective-rate units,
+seasonal adjustment, native labels, ordered notes and content-origin receipt semantics.
+Historical release vintages, publication/as-of claims, derived inflation, automatic
+alignment and forward filling remain unsupported. Local observed version history may
+include unavailable older versions without pretending they were zero. All 615 unit
+tests passed at the first adapter checkpoint. The completed checkpoint passes 977 isolated
+tests (623 unit / 354 integration), Ruff and strict mypy over 110 files, including 71 new
+macro agent cases. Actual PostgreSQL readers through HTTP match exact SDK evidence;
+connections close before model calls. Corrections, unchanged replays and omissions during
+model waits preserve already collected content and its original receipts. Zero rates,
+source-missing corrections, whole-window gaps, real twenty-row pagination, retired and
+cross-question tokens, three-series budgets and source-correct partial chains are tested.
+Separate live acceptance on 2026-10-09 used `gpt-6-luna`
+and the actual HTTP handler with reader-role queries. Eleven cases passed exact native
+HTTP evidence comparison and separate manual inspection: three 2024 native histories,
+latest stored CPI/Fed, empty/gapped local windows, complete two-page history, a larger
+three-page partial history, locally observed versions and a three-source BTC/Treasury/CPI
+answer. Native units, month labels, receipt/publication distinctions and unsupported
+historical-vintage claims were inspected. No production-code repair or provider fetch
+was needed. All 13 development table fingerprints stayed unchanged and no reader
+connection was held during model calls. After BLS backfill, the twelfth deferred case on
+2026-10-10 retrieved the actual source-missing 2025-10 CPI month. Its evidence matched
+native HTTP exactly: one represented month, zero available values, no absent stored key,
+the source dash/footnote and the original content receipt. One model request selected one
+reader tool; the server returned controlled `missing_values` text without a model prose
+continuation, treating the value as unavailable rather than zero or another month.
+Separate manual inspection and all 13 unchanged table fingerprints passed; no reader
+connection was held during the model request. The scoped cumulative macro acceptance
+ledger is closed and the persistent API remains disabled. Deterministic tests cover
+source-missing values and concurrent corrections; these live samples do not guarantee
+arbitrary prose factuality.
