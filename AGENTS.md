@@ -82,8 +82,17 @@ preserved earlier commits. Stop requests on quota rejection; resume after access
 without assuming a reset time or that command limits track shared daily usage. Reader
 checks verified six reusable older windows and two remaining fetch windows. Existing
 Coinbase/Treasury/Hyperliquid facts and audits match pre-migration fingerprints; the 2024
-macro facts/provenance also remain unchanged. Completion of the BLS backfill remains
-pending until provider quota access returns. No scheduler or paid model call was added.
+macro facts/provenance also remain unchanged. That initial checkpoint added no scheduler
+or paid model call. On 2026-10-10, BLS resume reused six older windows and completed both
+remaining reads in two attempts: 449 inserts, 24 unchanged observations, no corrections
+or retained omissions. CPI now has 956 represented months from 1947-01 through 2026-08
+(955 available); unemployment has 945 from 1948-01 through 2026-09 (944 available).
+Both preserve the explicit 2025-10 source dash and ordered source footnote. CPI 2026-09
+was absent from the successful response and remains unstored; do not infer a publication
+delay or fill it. Two fresh reads matched all 473 resumed-window keys, native values,
+missing reasons and notes; stored HTTP/SQL checks pass. All earlier facts/catalog/audits
+and overlapping 2024 content/provenance remain unchanged. The interrupted historical
+backfill is resolved; ordinary collection of future/current absent values remains separate.
 
 The reader/API checkpoint passes 906 isolated tests (577 unit / 329 integration), Ruff
 and strict mypy. Use SELECT-only read-only REPEATABLE READ snapshots; metadata, coverage,
@@ -118,11 +127,15 @@ HTTP evidence comparison and manual inspection on 2026-10-09: native histories, 
 stored months, empty/gapped storage, pagination/partial retrieval, locally observed
 versions and a BTC/Treasury/CPI answer. No production-code repair or provider request
 was needed; all 13 table fingerprints and released reader connections were verified.
-The source-marked missing-value live case awaits collection after the deferred BLS
-backfill; deterministic tests cover it. Consult ignored `.private/MACRO_AGENT_ACCEPTANCE.md`
-and its separate cumulative ledger before any remaining paid check. Preserve usage,
-prior closed ledgers and the disabled persistent API. Bounded live inspection does not
-guarantee arbitrary prose factuality.
+The deferred source-marked missing-value live case also passed on 2026-10-10 after BLS
+collection: exact native HTTP evidence, a controlled `missing_values` response without
+substitution/zero, original receipt/footnote and all 13 unchanged table fingerprints.
+It used one model request and one reader tool, with no model prose continuation. All
+twelve scoped cases are accepted and the separate cumulative macro ledger is now closed.
+Consult ignored `.private/MACRO_AGENT_ACCEPTANCE.md` before proposing any new paid check;
+completion does not authorize more spending. Preserve usage, prior closed ledgers and
+the disabled persistent API. Bounded live inspection does not guarantee arbitrary prose
+factuality. No scheduler was implemented or activated by this closeout.
 
 ## Build, Test, and Development Commands
 
@@ -179,6 +192,23 @@ Useful checks from the repository root:
 - `git diff --cached --check`: check staged changes before committing.
 
 When adding tooling, document dependency installation, local execution, build, and test commands in `README.md` and this guide.
+
+Install the official Gitleaks 8.30.1 binary after verifying its release checksum;
+Windows x64 uses ignored `.tools/gitleaks.exe`, while other platforms can use `PATH`.
+README records the Windows archive hash and installation steps. Scan available history
+with `.tools\gitleaks.exe git --redact --log-opts="--all" .`. Install the LF-terminated
+`.githooks/pre-commit` into the Git-reported hooks directory separately per clone,
+preserving existing hooks/custom `core.hooksPath`. The hook scans staged changes and
+blocks commits on findings, scanner errors or a missing scanner. No blanket secret
+exceptions are configured. Never print unredacted findings or stage scan reports.
+
+`.github/workflows/ci.yml` uses a pinned checkout, checksum-verified Gitleaks, generated
+ephemeral test credentials and the existing development Docker target. It runs the
+quality commands and isolated PostgreSQL suite above without live-provider checks,
+development data or model keys/calls. `.github/dependabot.yml` schedules reviewed weekly
+uv, action and container updates. GitHub security features and `master` rulesets require
+separate administrator configuration; establish successful remote check runs before
+requiring them. Do not enable paid security products or change visibility implicitly.
 
 ## Coding Style & Naming Conventions
 

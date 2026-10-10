@@ -469,8 +469,8 @@ local accepted data path, not universal source retention or arbitrary-model fact
 
 Status: **native models, provider clients, macro schema and atomic persistence
 implemented with manual ingestion jobs, read-only HTTP queries and bounded native
-agent adapters. Eleven available-data live cases are accepted; the source-marked missing
-value live case awaits collection.**
+agent adapters. Native BLS backfill resumed successfully on 2026-10-10; all twelve
+scoped live agent cases are accepted, including source-marked missing content.**
 Use direct original publishers for three fixed monthly series. This
 contract selects current historical values and locally observed corrections; it does
 not establish retrospective publication or vintage history.
@@ -823,6 +823,33 @@ fingerprints. No downloaded dataset file, scheduler, macro HTTP endpoint or mode
 was introduced. These live checks establish sampled ingestion/replay behavior and observed
 stored month keys, not historical publication-calendar or retrospective vintage coverage.
 
+### BLS backfill closeout — 2026-10-10
+
+Provider access returned on the next explicitly requested attempt. Resume verified and
+reused the six older windows, then read [2007-01-01, 2017-01-01) and
+[2017-01-01, 2026-10-01) in two HTTP attempts. The two successful transactions inserted
+449 months, preserved 24 unchanged overlapping observations and recorded no corrections
+or retained omissions. The original quota failure remains in the audit history.
+
+CPI has 956 represented months from 1947-01 through 2026-08, with 955 available values;
+unemployment has 945 from 1948-01 through 2026-09, with 944 available values. Both have an
+explicit unavailable 2025-10 source dash and its ordered publisher footnote. CPI 2026-09
+was absent from the successful recent response and remains unstored. This observed absence
+does not establish a publication delay, permit substitution or prevent closing the
+interrupted historical backfill. Future refreshes continue to collect current native
+values and locally observed changes under the existing contract.
+
+Two separate fresh reads matched all 473 resumed-window observations against reader SQL:
+exact period labels, Decimal values, missing reasons and ordered source notes. Native
+HTTP/SQL pagination, whole-window coverage, latest and versions matched across the
+2007-01–2026-10 window. Fingerprints reconstruct the unchanged original five macro tables
+while excluding the two new receipts and their new content; all eight earlier domain
+tables and overlapping 2024 provenance also remain unchanged. Macro storage now contains
+2,768 current keys and immutable versions, three footnotes and fourteen receipt audits.
+Reader-only resume planning now reuses seven historical windows and still fetches the
+recent revision region. No source dataset file, scheduler or production-code repair was
+introduced by this closeout.
+
 ### Native monthly readers and HTTP
 
 `macro/queries.py` reads through the existing SELECT-only role. Catalog, current pointer,
@@ -881,8 +908,9 @@ reader SQL, without provider requests, writes or model calls. On 2026-10-09 its 
 samples matched all 36 native observations through three pages per series, latest evidence
 and locally observed versions. The shared 1954-07–2026-10 check matched 642 stored keys
 and 225 uncollected months per BLS series and all 867 Fed months. All 13 checked earlier
-and macro fact/catalog/audit fingerprints stayed unchanged. Remaining BLS ingestion is
-deferred; these stored HTTP checks do not consume its provider quota.
+and macro fact/catalog/audit fingerprints stayed unchanged. Remaining BLS ingestion was
+deferred at that checkpoint; the subsequent BLS closeout above resolves it. Stored HTTP
+checks do not consume provider quota.
 
 ### Native macro agent adapters
 
@@ -923,10 +951,17 @@ three-page partial history, locally observed versions and a three-source BTC/Tre
 answer. Native units, month labels, receipt/publication distinctions and unsupported
 historical-vintage claims were inspected. No production-code repair or provider fetch
 was needed. All 13 development table fingerprints stayed unchanged and no reader
-connection was held during model calls. The persistent API remains disabled. No explicit
-source-missing value is stored yet; that live case awaits the deferred BLS backfill.
-Deterministic tests cover source-missing values and concurrent corrections; this live
-sample does not guarantee arbitrary prose factuality.
+connection was held during model calls. After BLS backfill, the twelfth deferred case on
+2026-10-10 retrieved the actual source-missing 2025-10 CPI month. Its evidence matched
+native HTTP exactly: one represented month, zero available values, no absent stored key,
+the source dash/footnote and the original content receipt. One model request selected one
+reader tool; the server returned controlled `missing_values` text without a model prose
+continuation, treating the value as unavailable rather than zero or another month.
+Separate manual inspection and all 13 unchanged table fingerprints passed; no reader
+connection was held during the model request. The scoped cumulative macro acceptance
+ledger is closed and the persistent API remains disabled. Deterministic tests cover
+source-missing values and concurrent corrections; these live samples do not guarantee
+arbitrary prose factuality.
 
 ## 15. Proposed local scheduled ingestion
 

@@ -232,7 +232,11 @@ def test_http_exact_evidence_and_sanitized_failures(
         engine=reader_queries.engine, api_settings=reader_queries.settings, now=reader_queries.now
     )
     with TestClient(app) as client:
-        params = {"start": START.isoformat(), "end": END.isoformat(), "limit": 2}
+        params: dict[str, str | int] = {
+            "start": START.isoformat(),
+            "end": END.isoformat(),
+            "limit": 2,
+        }
         response = client.get("/v1/hyperliquid/funding", params=params)
         assert response.status_code == 200
         body = response.json()

@@ -7,8 +7,7 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import cast
 
-import httpx
-from openai import APIError, OpenAI
+from openai import APIError, OpenAI, Timeout
 from openai.types.responses import Response, ResponseInputItemParam
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -282,9 +281,7 @@ class AgentRunner:
             try:
                 response = self.client.with_options(
                     max_retries=0,
-                    timeout=httpx.Timeout(
-                        remaining, connect=min(5, remaining), pool=min(5, remaining)
-                    ),
+                    timeout=Timeout(remaining, connect=min(5, remaining), pool=min(5, remaining)),
                 ).responses.create(
                     model=self.settings.model,
                     instructions=prompt,

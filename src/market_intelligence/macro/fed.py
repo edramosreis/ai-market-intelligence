@@ -76,7 +76,7 @@ def parse_fed(
             if archive.getinfo(DATA_MEMBER).file_size > MAX_XML_BYTES:
                 raise ValueError("Oversized data member")
             with archive.open(DATA_MEMBER) as stream:
-                parser = ET.XMLPullParser(events=("start", "end"))
+                parser: ET.XMLPullParser[ET.Element] = ET.XMLPullParser(events=("start", "end"))
                 decoder = codecs.getincrementaldecoder("utf-8-sig")("strict")
                 stack: list[ET.Element] = []
                 total = elements = selected_count = header_count = 0

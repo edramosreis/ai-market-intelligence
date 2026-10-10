@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+if [ -x ./.tools/gitleaks.exe ]; then
+    exec ./.tools/gitleaks.exe git --pre-commit --staged --redact .
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+    exec gitleaks git --pre-commit --staged --redact .
+fi
+
+printf '%s\n' 'Gitleaks is required before committing. See README.md for installation.' >&2
+exit 1
