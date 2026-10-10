@@ -261,13 +261,18 @@ against the native HTTP readers and separate manual inspection:
 | History exceeding the shared budget | Three pages retain 60 of 72 months; `partial_results` and continuation evidence remain explicit |
 | Locally observed version history | Exact native content and original collection/materialization receipt, without historical publisher-vintage or market-knowledge claims |
 | BTC/Treasury/CPI question | Three independently attributed sources and native windows/units within the existing shared budget |
+| Source-marked missing CPI month (2026-10-10 follow-up) | Actual 2025-10 source dash, native footnote/receipt and `missing_values`, without zero or substituted data |
 
 No production-code repair was needed. All 13 development fact/catalog/audit table
 fingerprints stayed unchanged, and no reader connection was held during model calls.
-These checks made no provider requests and preserve the deferred BLS backfill. No
-source-marked missing macro value is stored yet, so its separate live case remains
-pending after collection; deterministic tests already cover that behavior and correction
-handling. Inspection of these bounded cases does not guarantee arbitrary answer prose.
+The eleven initial cases made no provider requests and preserved the then-deferred BLS
+backfill. After BLS collection, the twelfth scoped case on **2026-10-10** passed exact
+native HTTP evidence comparison and manual inspection of the controlled source-missing
+response. It used one model request and one reader tool; the server returned
+`missing_values` without a model prose continuation. All 13 table fingerprints stayed
+unchanged. The cumulative macro acceptance ledger is closed; the persistent agent remains
+disabled. Deterministic tests also cover this behavior and corrections. Inspection of
+these bounded cases does not guarantee arbitrary answer prose.
 
 Application code fixes the Coinbase market, Treasury dataset, and native Hyperliquid BTC perpetual. Server validation rejects unknown functions, extra/duplicate arguments, unsupported date/timestamp formats, invalid cursors, and oversized windows. The history tool starts with `cursor: null`, then follows returned `next_cursor` values with unchanged bounds. Its strict schema offers only null and the latest server-issued continuation for each queried window, avoiding transcription of opaque tokens. Whole-window coverage counts stored source dates and all normalized tenors, not calendar completeness or only benchmark rates; only each page's observations identify its returned dates. Separate pages are separate snapshots. An answer is accepted only after a data tool executes; its separate evidence preserves exact decimals, source, period, provenance, and coverage. The agent cannot run SQL, ingest, browse, write, or choose another dataset.
 
@@ -461,7 +466,7 @@ counts and identifiers, not downloaded datasets, SQL, credentials or model paylo
 No scheduler or model call is involved. Equivalent host jobs use
 `.venv\Scripts\python.exe -m market_intelligence ingest-bls` or `ingest-fed`.
 
-### Local ingestion acceptance — 2026-10-09
+### Local ingestion acceptance — 2026-10-09–10
 
 Explicit migration `0004` and reader-role readiness passed. Real 2024 loads stored 24 BLS
 observations and 12 Fed rates. Replays recorded separate audits with zero new versions;
@@ -470,29 +475,37 @@ matched reader SQL for native period labels, Decimal values, missing reasons and
 
 | Series | Retained local observations | Backfill state |
 | --- | --- | --- |
-| CPI | 732 available months: 1947–2006 and the separate 2024 sample | Remaining historical windows pending |
-| Unemployment | 720 available months: 1948–2006 and the separate 2024 sample | Remaining historical windows pending |
+| CPI | 956 represented months: 1947-01 through 2026-08; 955 available | Historical resume completed; 2026-09 absent from the returned response |
+| Unemployment | 945 represented months: 1948-01 through 2026-09; 944 available | All requested native month keys present |
 | Fed funds | 867 available months: 1954-07 through 2026-09 | All requested native month keys present |
 
-BLS rejected the 2007–2016 window after six older windows committed. One bounded
+BLS initially rejected the 2007–2016 window after six older windows committed. One bounded
 diagnostic confirmed daily-quota exhaustion; further BLS calls stopped. The unregistered
 API permits [25 queries per day](https://www.bls.gov/developers/api_faqs.htm), while the
 job's attempt cap covers only that invocation. No reset time was established. The failure
 audit contains `source_rejected`; earlier data and the verified 2024 sample remain intact.
-Reader-only resume checks confirmed six reusable older windows and two windows to fetch.
-Once provider access returns, rerun:
+On 2026-10-10, access returned and this bounded resume reused the six older windows and
+completed both remaining reads in two HTTP attempts:
 
 ```powershell
-docker compose run --rm ingest ingest-bls --resume
+docker compose run --rm ingest ingest-bls --resume --max-requests 3 --max-seconds 600
 ```
 
-The remaining uncollected BLS months are local coverage gaps, not verified source
-omissions. Fingerprints for all existing Coinbase, Treasury and Hyperliquid facts/audits
-match the pre-migration baseline. The rebuilt API remains healthy with the agent disabled.
-No dataset files, scheduler or model calls were added. These checks establish the sampled
-ingestion/replay path and retained month keys; they do not establish historical release
-vintages or publication-calendar completeness. The stored reader/API check below uses
-no additional provider requests; the remaining BLS backfill is deferred.
+The job inserted 449 monthly records, preserved 24 unchanged overlapping observations
+and recorded no corrections or retained omissions. Both BLS series retain an explicit
+unavailable October 2025 value and its source footnote. September 2026 CPI was absent
+from the successful response and remains unstored; this does not establish a publication
+delay or justify filling it. The interrupted historical backfill is resolved.
+
+Two fresh BLS reads matched all 473 resumed-window keys, exact native labels/values,
+missing reasons and ordered notes against reader SQL. Native API/SQL checks also matched
+history pages, coverage, latest and observed versions. Fingerprints preserve all earlier
+Coinbase/Treasury/Hyperliquid facts/audits, original macro content/catalog/audits and the
+2024 sample's provenance. Reader-only resume planning now reuses seven older windows
+while always refetching the recent revision region. The API remains healthy and disabled.
+No dataset files, scheduler or production-code repair was added. The separate scoped
+agent follow-up is recorded above. These checks establish sampled ingestion/replay and
+retained native keys, not historical release vintages or publication-calendar completeness.
 
 ## Explore stored monthly macro data
 
@@ -555,8 +568,9 @@ series, and all 867 Fed months. Latest and local-version evidence also matched r
 SQL. All 13 existing and macro fact/catalog/audit table fingerprints stayed unchanged;
 the API is healthy and the agent remains disabled. All **906 deterministic tests**
 (577 unit / 329 integration), Ruff and strict mypy pass, including concurrent-correction
-snapshots and controlled 404/422/503 behavior. BLS's remaining ingestion still awaits
-provider quota availability; these HTTP checks consume none of that quota.
+snapshots and controlled 404/422/503 behavior. BLS ingestion was still deferred at that
+checkpoint; these HTTP checks consume none of its quota. The interrupted BLS history was
+subsequently resumed and verified on 2026-10-10 as recorded above.
 
 ## Run tests
 
