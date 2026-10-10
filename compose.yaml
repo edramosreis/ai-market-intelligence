@@ -104,5 +104,25 @@ services:
       POSTGRES_INGEST_USER: ${POSTGRES_INGEST_USER:?Generate .env first}
       POSTGRES_INGEST_PASSWORD: ${POSTGRES_INGEST_PASSWORD:?Generate .env first}
 
+  scheduler:
+    profiles: [scheduler]
+    image: ai-market-intelligence:local
+    command: [schedule, run]
+    init: true
+    restart: "no"
+    stop_grace_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:?Generate .env first}
+      POSTGRES_INGEST_USER: ${POSTGRES_INGEST_USER:?Generate .env first}
+      POSTGRES_INGEST_PASSWORD: ${POSTGRES_INGEST_PASSWORD:?Generate .env first}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-false}
+      SCHEDULER_JOBS: ${SCHEDULER_JOBS:-}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_POLL_SECONDS:-1}
+
 volumes:
   postgres_data:

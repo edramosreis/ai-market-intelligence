@@ -43,6 +43,7 @@ from market_intelligence.macro import cli as macro_cli
 from market_intelligence.macro.jobs import MacroIngestionError
 from market_intelligence.macro.models import MacroProvider
 from market_intelligence.macro.storage_models import MacroFailureCode
+from market_intelligence.scheduler import cli as scheduler_cli
 from market_intelligence.treasury.client import TreasuryClient
 from market_intelligence.treasury.models import (
     DATASET_CODE,
@@ -338,6 +339,9 @@ def run_hyperliquid(args: argparse.Namespace, settings: DatabaseSettings) -> Non
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Market intelligence database and ingestion jobs")
     subcommands = parser.add_subparsers(dest="command", required=True)
+    scheduler_cli.add_arguments(
+        subcommands.add_parser("schedule", help="Preview or control opt-in scheduled ingestion")
+    )
     subcommands.add_parser("init-db", help="Provision local roles, migrate, and install grants")
     check = subcommands.add_parser("check-db", help="Verify connection and schema revision")
     check.add_argument("--role", choices=[role.value for role in DatabaseRole], default="read")
@@ -429,6 +433,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         macro_cli.add_arguments(macro, provider)
     args = parser.parse_args(argv)
+    if args.command == "schedule":
+        return scheduler_cli.execute(args)
     if args.command == "ingest-treasury" and args.refresh and args.resume:
         parser.error("Treasury --refresh cannot be combined with --resume")
     if args.command == "ingest-funding" and args.refresh and args.resume:

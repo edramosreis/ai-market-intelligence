@@ -1,6 +1,6 @@
 """Dispatch atomicity, recovery, least privilege and native audit validation on PostgreSQL."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -18,8 +18,9 @@ from market_intelligence.db.scheduler_store import LeadershipLost, SchedulerBusy
 from market_intelligence.db.scheduler_tables import scheduled_job_runs as runs
 from market_intelligence.db.scheduler_tables import scheduler_job_state as states
 from market_intelligence.db.tables import open_interest_runs
-from market_intelligence.scheduler.jobs import JOBS, JobId
+from market_intelligence.scheduler.jobs import JOBS, JobDefinition, JobId, SchedulerSettings
 from market_intelligence.scheduler.models import AuditReference, ChildOutcome, OutcomeCode
+from market_intelligence.scheduler.service import SchedulerService
 
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 10, 10, 22, tzinfo=UTC)
@@ -30,6 +31,8 @@ def scheduler_store(
     database_settings: DatabaseSettings, admin_engine: Engine
 ) -> Iterator[SchedulerStore]:
     engine = create_db_engine(database_settings, DatabaseRole.INGEST)
+    with admin_engine.connect() as conn:
+        existing_oi = tuple(conn.execute(sa.select(open_interest_runs.c.id)).scalars())
     try:
         yield SchedulerStore(engine)
     finally:
@@ -47,7 +50,9 @@ def scheduler_store(
                     next_allowed_at=None,
                 )
             )
-            conn.execute(open_interest_runs.delete())
+            conn.execute(
+                open_interest_runs.delete().where(open_interest_runs.c.id.not_in(existing_oi))
+            )
 
 
 def test_seeded_schema_matches_metadata(connection: Connection) -> None:
@@ -270,3 +275,142 @@ def test_database_loss_detected_and_unfinished_attempt_recovered(
     with scheduler_store.leader():
         assert scheduler_store.recover(NOW + timedelta(minutes=16)) == 1
     assert scheduler_store.admit(JobId.OPEN_INTEREST, uuid4(), NOW + timedelta(days=1)) is None
+
+
+def test_admission_cursor_and_intent_roll_back_together(scheduler_store: SchedulerStore) -> None:
+    scheduler_store.admit(JobId.OPEN_INTEREST, uuid4(), NOW)
+
+    def fail_update(
+        conn: Connection,
+        cursor: Any,
+        statement: str,
+        parameters: Any,
+        context: Any,
+        executemany: bool,
+    ) -> None:
+        if statement.startswith("UPDATE scheduler_job_state"):
+            raise RuntimeError("Synthetic failure after intent insertion")
+
+    sa.event.listen(scheduler_store.engine, "before_cursor_execute", fail_update)
+    try:
+        with pytest.raises(RuntimeError):
+            scheduler_store.admit(JobId.OPEN_INTEREST, uuid4(), NOW + timedelta(minutes=15))
+    finally:
+        sa.event.remove(scheduler_store.engine, "before_cursor_execute", fail_update)
+    with scheduler_store.engine.connect() as conn:
+        assert conn.execute(sa.select(sa.func.count()).select_from(runs)).scalar_one() == 0
+        assert (
+            conn.execute(
+                sa.select(states.c.schedule_cursor).where(states.c.job_id == "open_interest")
+            ).scalar_one()
+            == NOW
+        )
+    assert (
+        scheduler_store.admit(JobId.OPEN_INTEREST, uuid4(), NOW + timedelta(minutes=15)) is not None
+    )
+
+
+def test_service_first_enrollment_then_fixed_sequential_children_without_transactions(
+    scheduler_store: SchedulerStore,
+    admin_engine: Engine,
+    database_settings: DatabaseSettings,
+) -> None:
+    clock = [NOW]
+    called: list[JobId] = []
+
+    class SyntheticRunner:
+        def run(
+            self,
+            job: JobDefinition,
+            settings: DatabaseSettings,
+            healthy: Callable[[], bool],
+            stopped: Callable[[], bool],
+        ) -> ChildOutcome:
+            assert healthy() and not stopped()
+            with admin_engine.connect() as conn:
+                assert (
+                    conn.execute(
+                        sa.text(
+                            "SELECT count(*) FROM pg_stat_activity WHERE usename = :writer "
+                            "AND state = 'idle in transaction'"
+                        ),
+                        {"writer": settings.ingest_user},
+                    ).scalar_one()
+                    == 0
+                )
+                assert (
+                    conn.execute(
+                        sa.select(runs.c.status)
+                        .where(runs.c.job_id == job.id.value)
+                        .order_by(runs.c.started_at.desc())
+                        .limit(1)
+                    ).scalar_one()
+                    == "running"
+                )
+            called.append(job.id)
+            return ChildOutcome("failed", OutcomeCode.CHILD_FAILED, 1)
+
+    service = SchedulerService(
+        scheduler_store,
+        SyntheticRunner(),
+        database_settings,
+        SchedulerSettings(  # type: ignore[call-arg]
+            enabled=True, jobs="bls,fed,treasury,funding,open_interest,coinbase", _env_file=None
+        ),
+        now=lambda: clock[0],
+    )
+    service.run(once=True)
+    assert called == []
+    clock[0] += timedelta(days=1)
+    service.run(once=True)
+    assert called == list(JobId)
+    clock[0] -= timedelta(hours=1)
+    service.run(once=True)
+    assert called == list(JobId)
+
+
+def test_status_reader_role_uses_read_only_snapshot(database_settings: DatabaseSettings) -> None:
+    engine = create_db_engine(database_settings, DatabaseRole.READ)
+    statements: list[str] = []
+
+    def record(
+        conn: Connection,
+        cursor: Any,
+        statement: str,
+        parameters: Any,
+        context: Any,
+        executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    sa.event.listen(engine, "before_cursor_execute", record)
+    try:
+        assert len(SchedulerStore(engine).status()["jobs"]) == 6  # type: ignore[arg-type]
+        assert statements[0] == "SET TRANSACTION READ ONLY"
+        assert all(
+            statement.startswith(("SET TRANSACTION READ ONLY", "SELECT"))
+            for statement in statements
+        )
+    finally:
+        engine.dispose()
+
+
+def test_migration_preserves_existing_catalogs_and_facts(connection: Connection) -> None:
+    from market_intelligence.db.tables import candles, metadata
+    from tests.integration.test_schema import candle_values
+
+    connection.execute(candles.insert().values(**candle_values(connection)))
+    domain = [
+        table
+        for name, table in metadata.tables.items()
+        if name not in {"scheduler_job_state", "scheduled_job_runs"}
+    ]
+    before = {table.name: connection.execute(sa.select(table)).mappings().all() for table in domain}
+    config = migration_config()
+    config.attributes["connection"] = connection
+    command.downgrade(config, "0004")
+    command.upgrade(config, "head")
+    assert {
+        table.name: connection.execute(sa.select(table)).mappings().all() for table in domain
+    } == before
+    assert connection.execute(sa.select(sa.func.count()).select_from(states)).scalar_one() == 6

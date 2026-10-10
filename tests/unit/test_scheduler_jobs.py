@@ -64,13 +64,14 @@ def test_bls_cooldown_delays_due_slot_without_losing_it() -> None:
 @pytest.mark.parametrize("value", ["unknown", "bls,bls", "bls,", ",", "coinbase;anything"])
 def test_job_selection_is_fixed_and_unique(value: str) -> None:
     with pytest.raises(ValidationError):
-        SchedulerSettings(jobs=value, _env_file=None)
+        SchedulerSettings(jobs=value, _env_file=None)  # type: ignore[call-arg]
 
 
 def test_disabled_defaults_and_definition_fingerprints() -> None:
-    settings = SchedulerSettings(_env_file=None)
+    settings = SchedulerSettings(_env_file=None)  # type: ignore[call-arg]
     assert not settings.enabled and settings.selected == ()
-    assert SchedulerSettings(jobs=" bls, fed ", _env_file=None).selected == (JobId.BLS, JobId.FED)
+    selected = SchedulerSettings(jobs=" bls, fed ", _env_file=None)  # type: ignore[call-arg]
+    assert selected.selected == (JobId.BLS, JobId.FED)
     assert len({job.fingerprint for job in DEFINITIONS}) == 6
     assert all(
         len(job.fingerprint) == 64 and "--max-seconds" in job.arguments for job in DEFINITIONS

@@ -69,6 +69,7 @@ class SchedulerStore:
     @contextmanager
     def leader(self) -> Iterator[Leader]:
         with self.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(sa.text("SET statement_timeout = 1000"))
             locked = conn.execute(
                 sa.text("SELECT pg_try_advisory_lock(:key)"), {"key": SCHEDULER_LOCK_KEY}
             ).scalar_one()
@@ -78,11 +79,14 @@ class SchedulerStore:
             try:
                 yield leader
             finally:
-                if leader.healthy():
-                    conn.execute(
-                        sa.text("SELECT pg_advisory_unlock(:key)"), {"key": SCHEDULER_LOCK_KEY}
-                    )
-                else:
+                try:
+                    if leader.healthy():
+                        conn.execute(
+                            sa.text("SELECT pg_advisory_unlock(:key)"), {"key": SCHEDULER_LOCK_KEY}
+                        )
+                finally:
+                    # A leader session never returns to the ordinary connection pool.
+                    # Closing physically also releases its lock if explicit unlock fails.
                     conn.invalidate()
 
     def recover(self, now: datetime) -> int:
