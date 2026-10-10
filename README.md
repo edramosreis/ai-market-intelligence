@@ -6,6 +6,11 @@ A market research platform being built to collect historical data, produce repro
 
 Treasury ingestion, read-only curve queries, and agent tools are also implemented: daily nominal par yields with native dates, exact percentage values, explicit missing reasons, and current-value provenance. Deterministic agent tests and a separately inspected live acceptance batch verify curves, paginated spreads, mixed-source evidence, and controlled limitations.
 
+Hyperliquid BTC perpetual funding and locally collected open-interest snapshots are
+implemented, with manual ingestion, read-only queries and three agent tools. Together
+with native macro integration, the agent has ten fixed tools. Open interest records
+observed local receipts; historical open-interest reconstruction is outside this slice.
+
 The next macro component has a reviewed direct-source contract: BLS monthly CPI and
 unemployment, followed by the Federal Reserve Board's native monthly effective federal
 funds rate. Public source checks verified their observation history and explicit missing
@@ -54,6 +59,17 @@ The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-m
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): reviewed design, semantics, trade-offs, and full Milestone 1 acceptance criteria.
 - [AGENTS.md](AGENTS.md): contributor commands, scope, and conventions.
+- [SECURITY.md](SECURITY.md): supported development scope, safe configuration and private vulnerability reporting.
+- [LICENSE](LICENSE): MIT terms for this project's source code.
+
+This is a work-in-progress project for local development. Published source contains
+code and synthetic test fixtures; downloaded history, credentials and current personal
+planning files are excluded from Git. Each local installation generates its own
+credentials and starts with an empty database. Review the remote-demo requirements
+below before exposing a running instance to other users.
+
+The project's source code is licensed under MIT. Downloaded provider data has its own
+source terms; the code license does not grant redistribution rights to those datasets.
 
 ## Start the local environment
 
@@ -79,7 +95,8 @@ docker compose run --rm migrate
 docker compose run --rm check
 ```
 
-Expected final output: `Database ready: revision=0004, markets=1, role=read`.
+Expected final output with the current migrations:
+`Database ready: revision=0004, markets=1, role=read`.
 
 `init-db` provisions restricted roles, applies Alembic revisions, and installs grants. Rerunning it does not duplicate reference data and applies current ingestion/reader passwords. Changing the administrator password in `.env` does **not** rotate an already initialized volume's password. Use this bootstrap only for the project's dedicated local database.
 
@@ -90,6 +107,11 @@ The localhost binding is the intended access boundary, not a security guarantee 
 ## Remote demos
 
 The HTTP API binds to localhost and is intended for local development. A remote demo should expose only the app through authenticated HTTPS, using an access-controlled tunnel or a separate hosted environment. Keep PostgreSQL and the Docker daemon private. Before inviting testers, add application authentication, request limits, and model-spend limits at the relevant checkpoint. Sharing a Git repository lets others run their own local copy with independently generated credentials and their own initially empty database. Never share your `.env`.
+
+Publishing this repository does not change the network bindings of a local installation.
+Application authentication and a cumulative monetary spending cap are not implemented
+in the current API. Its per-question model/tool limits and process concurrency limit
+do not provide those hosted-service controls.
 
 ## Schema and access
 
@@ -247,6 +269,12 @@ values, uncollected months, twenty-row continuations, shared budgets and exact e
 after correction/replay/omission during model waits. Reader connections are released
 before those waits. This deterministic checkpoint used no live provider/model calls.
 The persistent agent remains disabled.
+
+Merge readiness was rechecked on **2026-10-10** with the updated master dependencies:
+OpenAI SDK 3.24.0, SQLAlchemy 2.1.3 and mypy 2.4.0. All 977 isolated tests, Ruff and strict
+types pass. The agent uses the SDK's public timeout type; synthetic model transports use
+the SDK's HTTPX2 client interface, declared in the development dependencies. Provider
+clients continue using HTTPX. This compatibility check made no live provider/model calls.
 
 Separate macro live acceptance on **2026-10-09** used `gpt-6-luna`, the actual agent
 HTTP handler and reader-role queries. Eleven cases passed exact tool-evidence comparison
@@ -625,6 +653,57 @@ The same database commands can run on the host after starting PostgreSQL:
 ```
 
 For schema changes, update Core metadata, generate/review an Alembic revision, then apply it with `init-db` so grants are reapplied. Review PostgreSQL alignment checks carefully: autogeneration can escape `%` as `%%`. Keep applied revisions immutable. `.venv\Scripts\alembic.exe upgrade head --sql` generates offline SQL without credentials. Verify migrations against PostgreSQL rather than SQLite.
+
+## Secret scanning and continuous integration
+
+Install [Gitleaks 8.30.1](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1)
+before committing. On Windows x64, download `gitleaks_8.30.1_windows_x64.zip`, check
+its SHA-256 with `Get-FileHash -Algorithm SHA256`, and extract `gitleaks.exe` into
+the ignored `.tools/` directory. The expected archive hash is
+`d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e`.
+Other platforms can install the official matching binary on `PATH` after verifying
+the release checksum.
+
+From the repository root, scan all locally available Git history:
+
+```powershell
+.tools\gitleaks.exe version
+.tools\gitleaks.exe git --redact --log-opts="--all" .
+```
+
+Install the committed hook separately in each clone. This refuses to overwrite an
+existing hook; inspect and combine existing hooks rather than discarding them. If
+`git config --get core.hooksPath` returns a custom location, review that setup first.
+
+```powershell
+$hookPath = [IO.Path]::GetFullPath((git rev-parse --git-path hooks/pre-commit).Trim())
+if (Test-Path -LiteralPath $hookPath) { throw "An existing hook needs review." }
+Copy-Item -LiteralPath .githooks/pre-commit -Destination $hookPath
+```
+
+The hook scans staged changes, redacts findings, and blocks the commit if Gitleaks
+finds a secret or is unavailable. It uses `.tools/gitleaks.exe` on Windows or
+`gitleaks` on `PATH`. Run `sh .git/hooks/pre-commit` from Git Bash to check a normal
+clone's installation. Hooks are local safeguards and can be bypassed; CI supplies
+an independent check. Rotate a real exposed credential before cleanup. Review
+synthetic findings individually and keep any exceptions narrowly scoped.
+
+`.github/workflows/ci.yml` defines formatting, linting, strict types and the full
+isolated PostgreSQL suite through the existing development Docker target, plus a
+separate redacted Gitleaks history scan. GitHub runners generate temporary database
+credentials; no repository credentials, live-provider scripts or paid model calls
+are needed. The checkout action is pinned to a full commit and the scanner archive
+is pinned by version and SHA-256. Publishing the workflow requires a successful
+first GitHub run before treating its check names as established branch requirements.
+Local equivalents are the quality commands and isolated Compose suite above.
+
+`.github/dependabot.yml` schedules weekly reviewed updates for uv, GitHub Actions,
+Dockerfile images and Compose images. Updates do not merge automatically. Repository
+administrators enable Dependabot alerts/security updates, secret scanning, push
+protection, private vulnerability reporting and CodeQL separately in GitHub settings,
+subject to repository visibility and plan. Require successful CI checks through a
+`master` ruleset only after those checks have appeared on GitHub. Keep source/license,
+provider-data and hosted-service boundaries in [SECURITY.md](SECURITY.md).
 
 ## Stop and recover
 

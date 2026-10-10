@@ -5,7 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Any, cast
 
-import httpx
+import httpx2 as httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
