@@ -32,7 +32,7 @@ from market_intelligence.db.treasury_store import TreasuryStore
 def isolate_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     # Unit tests must not inherit local .env or credentials from the test runner.
     for key in tuple(os.environ):
-        if key.startswith(("OPENAI_", "AGENT_")):
+        if key.startswith(("OPENAI_", "AGENT_", "SCHEDULER_")):
             monkeypatch.delenv(key)
     if os.environ.get("RUN_POSTGRES_TESTS") != "1":
         for key in tuple(os.environ):

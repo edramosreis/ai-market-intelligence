@@ -23,6 +23,8 @@ TABLE_NAMES = (
     "macro_observed_versions",
     "macro_version_footnotes",
     "macro_current",
+    "scheduler_job_state",
+    "scheduled_job_runs",
 )
 
 
@@ -111,6 +113,7 @@ def grant_table_access(settings: DatabaseSettings) -> None:
                 "open_interest_runs",
                 "macro_ingestion_runs",
                 "macro_current",
+                "scheduled_job_runs",
             ):
                 conn.execute(
                     sql.SQL("GRANT INSERT, UPDATE ON TABLE public.{} TO {}").format(
@@ -128,5 +131,10 @@ def grant_table_access(settings: DatabaseSettings) -> None:
                         sql.Identifier(table), sql.Identifier(ingest_name)
                     )
                 )
+            conn.execute(
+                sql.SQL("GRANT UPDATE ON TABLE public.scheduler_job_state TO {}").format(
+                    sql.Identifier(ingest_name)
+                )
+            )
     except psycopg.Error:
         raise RuntimeError("Database permission setup failed") from None
