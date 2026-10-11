@@ -377,6 +377,8 @@ class ProcessRunner:
 
     @staticmethod
     def _terminate(process: subprocess.Popen[bytes], grace_seconds: float) -> None:
+        if sys.platform != "linux":
+            raise ValueError("Process supervision requires Linux")
         # killpg also handles a descendant retaining a pipe after the parent has exited.
         with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGINT)
