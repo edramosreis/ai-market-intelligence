@@ -685,10 +685,28 @@ docker compose stop scheduler
 `docker compose run --rm scheduler schedule run --once` makes one admission pass; on
 first enrollment it initializes state and returns without fetching. It can execute real
 due jobs on later passes and therefore requires the same explicit activation decision.
-The implementation checkpoint covers 83 new deterministic checks and all 1060 tests;
-no live provider/model check, development migration or unattended operation is claimed.
-The production image also passes preview and disabled-dispatch checks with networking
-disabled and no database credentials. The development API/data remain unchanged.
+The deterministic implementation checkpoint covers 83 new scheduler checks and all
+1060 tests. The production image also passes preview and disabled-dispatch checks with
+networking disabled and no database credentials.
+
+Separate operational acceptance on 2026-10-11 applied migration `0005`, verified unchanged
+fingerprints for all 17 existing domain/catalog tables, and deployed the updated API with
+the agent disabled. First enrollment dispatched nothing. One actual Coinbase refresh
+inserted 864 completed candles, and one Hyperliquid OI collection appended an immutable
+receipt. Each scheduler attempt linked its successful native audit. Coinbase coalesced
+three missed slots into one run; immediate supervisor restarts repeated neither job and
+left all state, attempts and domain fingerprints unchanged. Latest stored BTC/OI HTTP
+evidence matched the complete reader models, including native values and provenance.
+Earlier history outside the refresh window, earlier audits/OI receipts, inactive sources,
+catalogs, configuration and closed model ledgers passed preservation checks. The batch
+made no model calls and did not fetch Treasury, funding, BLS or Fed; those four dispatches
+remain outside this live acceptance scope. No production-code repair was needed.
+
+The committed defaults remain disabled with no selected jobs. Once explicitly configured
+and enabled, the scheduler runs only while its container and PostgreSQL are running.
+After restarting Docker, start it manually with the profile command above; `restart: "no"`
+does not automatically relaunch it. Stored cursors coalesce overdue jobs to their latest
+eligible slot. Long downtime outside a native refresh window still needs explicit repair.
 
 ## Run tests
 

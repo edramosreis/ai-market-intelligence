@@ -1121,3 +1121,18 @@ status is SELECT-only in a read-only repeatable snapshot. Synthetic children obs
 committed running intent and no writer session idle in a transaction. No live provider or
 model call, development migration or unattended activation is part of this checkpoint.
 Review a separately authorized bounded provider execution before unattended activation.
+
+Separate operational acceptance on 2026-10-11 applied revision `0005` and verified all
+17 existing domain/catalog fingerprints before deploying the updated disabled-agent API.
+Actual UTC enrollment dispatched nothing. One fixed Coinbase refresh and one fixed
+Hyperliquid OI collection succeeded with verified native audit links: 864 inserted candles
+and one appended receipt. Coinbase coalesced three missed slots into one latest eligible
+attempt. Immediate restarts before the next slots repeated neither job; complete state,
+attempt and domain fingerprints matched across each restart. Latest stored BTC/OI HTTP
+models matched actual reader results, including native values, units, times and provenance.
+Protected history, earlier audits/OI receipts, inactive sources, catalogs, configuration
+and all closed model ledgers were preserved. No production-code repair or model call was
+needed. Treasury, funding, BLS and Fed were unselected for this bounded batch; it does
+not establish live scheduler acceptance of those four jobs or long-running reliability.
+Persistent activation requires an explicit selection; committed defaults remain off and
+the manual container-start policy remains unchanged.

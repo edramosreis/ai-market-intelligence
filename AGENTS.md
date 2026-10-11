@@ -157,7 +157,7 @@ across pause/resume/restart. Source rejection/invalid content pauses; known tran
 failures wait for the next slot without extra whole-command retries. Do not infer quota
 reset times or shared usage from local command limits.
 
-The opt-in Compose `scheduler` profile stays disabled with `SCHEDULER_ENABLED=false`,
+The opt-in Compose `scheduler` profile defaults to disabled with `SCHEDULER_ENABLED=false`,
 empty `SCHEDULER_JOBS` and no automatic restart policy. Active dispatch requires the
 Linux runtime container, no dotenv/admin/reader/model settings, and writer-only child
 environment. Preview needs no database; status uses reader read-only REPEATABLE READ.
@@ -165,8 +165,19 @@ The supervisor bounds combined output to 64 KiB and lines to 8 KiB, discards raw
 adds 30 seconds to command deadlines, and interrupts/kills/reaps the child group with
 bounded grace. Apply migration `0005` before the updated API or scheduler; installing
 does not authorize activation. All 1060 deterministic tests (680 unit / 380 integration),
-Ruff and strict mypy pass. No live provider/model calls or development activation are
-part of scheduler acceptance; review a separately bounded live check before activation.
+Ruff and strict mypy pass. These deterministic checks make no live provider/model calls.
+
+Separate scheduler operational acceptance on 2026-10-11 applied `0005` and preserved all
+17 pre-existing domain/catalog fingerprints before deployment. Actual UTC enrollment
+made no dispatch. One Coinbase refresh inserted 864 completed candles; one Hyperliquid
+OI collection appended an immutable receipt. Both linked verified native audits, and
+immediate restarts repeated neither attempt or changed stored state. Coinbase coalesced
+three missed slots. Complete latest stored HTTP/reader evidence matched; protected older
+history, earlier audits/OI receipts, inactive sources, catalogs, configuration and closed
+model ledgers were preserved. No code repair or model call was needed. Treasury, funding,
+BLS and Fed were not selected in this bounded live batch. Do not expand that scoped
+acceptance into a claim that all six jobs or prolonged unattended operation were tested.
+Committed defaults stay off; deployment alone does not authorize regular activation.
 
 Run from the repository root; full installation instructions are in `README.md`.
 
