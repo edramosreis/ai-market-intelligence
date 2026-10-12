@@ -137,6 +137,26 @@ completion does not authorize more spending. Preserve usage, prior closed ledger
 the disabled persistent API. Bounded live inspection does not guarantee arbitrary prose
 factuality. No scheduler was implemented or activated by this closeout.
 
+Milestone 2's final structured-data closeout passed on 2026-10-12. Three live agent cases
+verified independent Coinbase/Treasury/CPI evidence, funding/unemployment/Fed funds and
+explicit source-missing CPI through actual reader queries and HTTP comparisons, with
+separate prose inspection. Nine model requests/seven tools had released reader connections;
+the separate usage ledger is closed with zero unreconciled requests. Consult ignored
+`.private/MILESTONE_2_DEMO_REVIEW.md` before proposing further paid checks; this completed
+batch does not authorize additional spending. All four earlier closed ledgers are preserved.
+The persistent agent remains disabled; the application has no aggregate monetary cap.
+
+A separate reader-only operational snapshot verified all 258 completed scheduled runs'
+native source/instrument/status/time links and successful routine activity for all six
+jobs. Migration 0005, BLS cooldown, writer-only Linux environment, manual restart and
+actual latest BTC/OI HTTP-reader parity passed. This does not imply prolonged reliability
+or complete source calendars. A bounded manual Coinbase job repaired 609 previously
+uncollected candles beyond the 72-hour refresh window, preserving the earlier 711152
+facts/provenance; retained source/storage gaps remain explicit. README and ARCHITECTURE
+section 16 record the dated scope. `docs/DEMO.md` provides a public screen-sharing route
+without requiring private helpers. Next milestone design is financial documents/RAG;
+do not begin it merely because structured-data closeout is complete.
+
 ## Build, Test, and Development Commands
 
 Optional scheduling lives in `scheduler/`: six fixed definitions and a pure UTC planner,

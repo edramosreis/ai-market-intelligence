@@ -2,7 +2,17 @@
 
 A market research platform being built to collect historical data, produce reproducible analysis, and answer questions grounded in stored market observations.
 
-**Current state: Milestone 1's local vertical slice is implemented and verified.** Real five-minute history from 2020-01-01 is retained locally, with source gaps reported explicitly. The read-only API serves stored candles, derived bars, coverage, latest observations, and summaries. Deterministic agent tests execute those same queries through simulated model responses; a separate live demonstration with `gpt-6-luna` passed manual evidence and answer inspection.
+**Current state: Milestones 1 and 2 are complete for the reviewed local structured-data scope.**
+The platform ingests Coinbase Exchange spot BTC/USD, US Treasury nominal par yields,
+Hyperliquid BTC perpetual funding and forward open-interest receipts, and direct BLS/FRB
+monthly macro data. Native readers serve exact values, coverage and provenance through
+HTTP and ten fixed agent tools. Six optional scheduled jobs wrap the same ingestion
+commands. Deterministic tests and separately inspected live checks verify the local slice;
+document retrieval/RAG, other markets and public deployment remain future work.
+
+Start with the [screen-sharing walkthrough](docs/DEMO.md) and
+[Milestone 2 closeout](#milestone-2-closeout). Swagger and a terminal are sufficient;
+the published walkthrough uses committed commands and needs no private development files.
 
 Treasury ingestion, read-only curve queries, and agent tools are also implemented: daily nominal par yields with native dates, exact percentage values, explicit missing reasons, and current-value provenance. Deterministic agent tests and a separately inspected live acceptance batch verify curves, paginated spreads, mixed-source evidence, and controlled limitations.
 
@@ -11,7 +21,7 @@ implemented, with manual ingestion, read-only queries and three agent tools. Tog
 with native macro integration, the agent has ten fixed tools. Open interest records
 observed local receipts; historical open-interest reconstruction is outside this slice.
 
-The next macro component has a reviewed direct-source contract: BLS monthly CPI and
+The implemented macro component uses the reviewed direct-source contract: BLS monthly CPI and
 unemployment, followed by the Federal Reserve Board's native monthly effective federal
 funds rate. Public source checks verified their observation history and explicit missing
 values. Both native provider clients and domain models are implemented with synthetic
@@ -38,8 +48,9 @@ preserving native month-end labels, release prepared text and source annotations
 archive is extracted or saved; remote schemas are not loaded. A live 2024 sample through
 each implemented client returned 12 available months per series on 2026-10-08. This
 verifies the provider boundary, not historical publication/vintage coverage.
-All 977 isolated deterministic tests (623 unit / 354 integration), Ruff and strict
-mypy pass. This includes 124 native provider/domain cases and 64 new schema/persistence
+The macro checkpoint passed 977 isolated deterministic tests (623 unit / 354 integration),
+Ruff and strict mypy; the full suite now includes 1060 tests with scheduling. The macro
+checks include 124 native provider/domain cases and 64 new schema/persistence
 cases covering constraints, restricted roles, migration preservation, replay, corrections,
 omissions, independent locks, rollback, delayed receipts and reader snapshot consistency.
 The writer has INSERT-only access to immutable versions/footnotes; current rows reference
@@ -61,9 +72,14 @@ audits and explicit pause/recovery controls. It stays disabled by default, with 
 jobs. All **1060 isolated tests** (680 unit / 380 integration), Ruff and strict mypy pass.
 See [scheduled ingestion](#optional-local-scheduled-ingestion) before deployment or activation.
 
-The approved data contract is **Coinbase Exchange spot BTC/USD, completed five-minute candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject to source availability. Retain ingested history without a rolling retention limit. Fifteen-minute, hourly, and daily bars will be derived from the canonical five-minute observations.
+The approved spot data contract is **Coinbase Exchange BTC/USD, completed five-minute
+candles, and an initial backfill from 2020-01-01**, with earlier dates configurable subject
+to source availability. Ingested history has no rolling retention limit. Fifteen-minute,
+hourly and daily bars are derived from the canonical five-minute observations. Treasury
+history defaults to 1990; macro jobs use their verified native history starts.
 
-- [ARCHITECTURE.md](ARCHITECTURE.md): reviewed design, semantics, trade-offs, and full Milestone 1 acceptance criteria.
+- [ARCHITECTURE.md](ARCHITECTURE.md): reviewed design, semantics, trade-offs, and Milestone 1/2 acceptance evidence.
+- [docs/DEMO.md](docs/DEMO.md): reproducible local API/agent walkthrough for a screen-sharing demo.
 - [AGENTS.md](AGENTS.md): contributor commands, scope, and conventions.
 - [SECURITY.md](SECURITY.md): supported development scope, safe configuration and private vulnerability reporting.
 - [LICENSE](LICENSE): MIT terms for this project's source code.
@@ -76,6 +92,57 @@ below before exposing a running instance to other users.
 
 The project's source code is licensed under MIT. Downloaded provider data has its own
 source terms; the code license does not grant redistribution rights to those datasets.
+
+## Milestone 2 closeout
+
+On **2026-10-12**, three final agent cases passed exact native HTTP evidence comparison
+and separate prose/limitation inspection on their first attempts with `gpt-6-luna`:
+
+| Case | Verified behavior |
+| --- | --- |
+| Coinbase / Treasury / CPI | January 1 spot high/low/BTC volume, January 2 benchmark yields/spread and January CPI retained their own windows, sources and units; three tools/four model requests |
+| Funding / unemployment / Fed funds | January's 744 settled funding hours, arithmetic sum/percent/mean and both native monthly rates matched evidence; three tools/four model requests, with no compounding, local daily averaging or inferred relationship |
+| Source-marked missing CPI | October 2025 stayed null with `source_dash`, its ordered footnote and original content receipt; `limited` / `missing_values` after one tool/one model request, without a prose continuation |
+
+The batch used nine model requests and seven reader tools. A separate cumulative spend
+guard reserved before dispatch and reconciled known usage; its conservative token-based
+estimate was below US$0.021, not a billing invoice. All nine model waits had released
+reader connections. The ledger was closed after inspection; earlier closed batches were
+preserved. This scoped check does not guarantee arbitrary prose factuality. The guard was
+a local acceptance aid; the normal API still has no aggregate monetary cap and remains
+disabled by default. No new production code or calculation was needed.
+
+A separate reader-only operational review at **17:26 UTC** verified 258 completed
+scheduled runs and every native audit's source/instrument/status/time link. All six jobs
+had successful routine activity; no failed/uncertain attempt or paused job was present in
+that snapshot. The BLS 24-hour cooldown, Linux writer-only scheduler environment, manual
+restart policy, migration `0005`, disabled persistent agent and latest BTC/OI HTTP-to-reader
+parity passed inspection. This extends observed routine-operation evidence beyond the
+earlier bounded Coinbase/OI test; it does not establish prolonged unattended reliability
+or complete publisher coverage.
+
+The coverage review found an uncollected interval outside Coinbase's 72-hour refresh
+window. One explicit native job loaded all 609 candles in
+`[2026-10-06T12:20Z, 2026-10-08T15:05Z)`, with no updates or remaining gap in that interval.
+The earlier 711,152 candles' full content/provenance fingerprint was preserved. This was
+a manual ingestion repair, separate from the agent and scheduler review. At closeout:
+
+| Dataset | Stored coverage / remaining limitation |
+| --- | --- |
+| Coinbase | 712,941 of 713,297 five-minute buckets from 2020-01-01 through 2026-10-12 17:25 UTC; 356 absent buckets in 27 ranges, so whole-history metrics remain unavailable |
+| Treasury | 9,201 source dates from 1990-01-02 through 2026-10-09, with 128,814 normalized tenor facts; source dates do not prove calendar completeness |
+| Hyperliquid funding | 24,376 of 24,377 settled hours through 2026-10-12 17:00 UTC; the previously confirmed 2024-08-15 13:00 UTC omission remains explicit |
+| BLS CPI | 956 represented months from 1947-01 through 2026-08, 955 available; October 2025 is source-marked missing and September 2026 is absent from storage |
+| BLS unemployment | 945 represented months from 1948-01 through 2026-09, 944 available; October 2025 is source-marked missing |
+| FRB monthly effective funds | 867 available months from 1954-07 through 2026-09; current history and locally observed versions, without retrospective release vintages |
+
+These are dated local measurements, not promises about another installation. OI remains
+a sequence of actual local receipts, with no reconstructed historical OI calendar.
+Scheduler catch-up coalesces opportunities; downtime beyond a refresh window can require
+manual history repair. Missing values are never zero-filled, and macro month lag does not
+establish publication delay. Native spot returns, Treasury benchmark spreads and funding
+sum/mean calculations satisfy this slice's analytical scope; cross-source alignment,
+correlations, derived inflation, trading and forecasting are outside it.
 
 ## Start the local environment
 
@@ -197,7 +264,12 @@ After database initialization, start the API:
 docker compose up -d --wait api
 ```
 
-Open [interactive API documentation](http://127.0.0.1:8000/docs). Readiness checks database access and revision `0001`; an unavailable database or unexpected revision returns 503. Liveness does not depend on the database or model configuration. The API uses reader database credentials and creates no schema or data. Market GET endpoints make no Coinbase or OpenAI calls; the optional agent POST is described below. Run migrations explicitly before starting it.
+Open [interactive API documentation](http://127.0.0.1:8000/docs). Readiness checks database
+access and the current migration head `0005`; an unavailable database or unexpected
+revision returns 503. Liveness does not depend on database or model configuration. The
+API uses reader credentials and creates no schema or data. Data GET endpoints make no
+provider or OpenAI calls; the optional agent POST is described below. Run migrations
+explicitly before starting it.
 
 Examples using seeded market id `1` (discover ids through `/v1/markets`):
 

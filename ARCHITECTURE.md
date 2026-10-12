@@ -1,8 +1,14 @@
 # Application architecture
 
-Status: **reviewed; Milestone 1's local vertical slice is implemented and verified, including manually inspected live-agent answers.**
+Status: **Milestones 1 and 2 are complete for the reviewed local structured-data scope,
+including separately inspected live-agent answers and scheduled ingestion.**
 
 The Treasury provider boundary, dedicated schema, monthly ingestion, read-only queries/API, and bounded agent tools are implemented. Their native data contract and limitations are described in section 12. Treasury agent execution is verified with simulated model responses and separately inspected live acceptance checks.
+
+Hyperliquid funding/forward OI, direct BLS/FRB monthly macro data and six optional scheduled
+jobs are implemented in sections 13–15. Section 16 records the final multi-source demo,
+operational review and scope boundaries. The next planned extension is financial documents
+and retrieval/RAG; it is not part of this structured-data closeout.
 
 The reviewed contract uses Coinbase spot BTC/USD, five-minute candles, and retained history from 2020-01-01 with earlier dates configurable. The local data path and agent loop are implemented. The initial backfill completed with independently verified source gaps; README records ingestion, HTTP, deterministic tests, and separately inspected live-agent verification. Material direction changes remain reviewable.
 
@@ -1136,3 +1142,61 @@ needed. Treasury, funding, BLS and Fed were unselected for this bounded batch; i
 not establish live scheduler acceptance of those four jobs or long-running reliability.
 Persistent activation requires an explicit selection; committed defaults remain off and
 the manual container-start policy remains unchanged.
+
+## 16. Milestone 2 closeout and demonstrated scope
+
+The final local structured-data slice was inspected on **2026-10-12**. Native ingestion
+remains independently runnable and replayable; HTTP routes and ten narrow agent tools
+reuse SELECT-only reader snapshots. Each fact family retains its own grain, units,
+timestamps, missingness and correction policy. The agent neither writes data nor fetches
+providers. Existing spot returns, same-date Treasury benchmark spreads and funding sums/
+means provide deterministic native calculations; combined answers retain independent
+source periods rather than silently joining calendars or inventing aligned statistics.
+
+```mermaid
+flowchart TD
+    Providers[Native Coinbase / Treasury / Hyperliquid / BLS / FRB clients] --> Jobs[Explicit ingestion commands]
+    Schedule[Optional six-job UTC supervisor] --> Jobs
+    Jobs --> Facts[(Native facts, immutable receipts/versions and audits)]
+    Facts --> Readers[Read-only REPEATABLE READ queries]
+    Readers --> Routes[Stored-data GET endpoints]
+    Model[Bounded Responses loop] --> Tools[Ten fixed argument-validated reader tools]
+    Tools --> Readers
+    Readers --> Evidence[Server-collected source / units / coverage / provenance]
+    Evidence --> Model
+    Model --> Result[Answer or controlled limitation plus exact evidence]
+```
+
+Three final live cases passed exact HTTP-reader evidence comparison and separate prose
+inspection: Coinbase/Treasury/CPI, funding/unemployment/Fed funds, and explicitly missing
+CPI. Each positive case used three tools/four model requests; the missing-value case
+used one tool/one model request and stopped with the server's `missing_values` explanation.
+The cumulative batch closed after nine requests with known usage, preserved earlier
+ledgers and no held reader connections during model waits. Its separate local spend
+guard does not give the persistent API an application-wide monetary cap. No production
+code repair or extra derived calculation was needed. See [the public demo route](docs/DEMO.md)
+for repeatable stored-data examples and the explicitly paid API option.
+
+A separate 17:26 UTC reader review verified all 258 completed scheduled attempts' native
+audit identities, source/instrument filters, status and execution times. All six jobs had
+successful routine activity in that snapshot, with no failed/uncertain attempt or paused
+state. The migration, BLS cooldown, writer-only Linux environment, manual restart policy,
+disabled persistent agent and latest BTC/OI HTTP-reader parity were checked. This is
+observed operation after activation, separate from the earlier bounded two-job test; it
+does not establish prolonged unattended reliability or a publisher's complete calendar.
+
+The review also found a 609-candle uncollected interval beyond the 72-hour Coinbase
+refresh window. An explicit native ingestion job filled only that interval; all earlier
+711,152 candles' full content/provenance fingerprint remained unchanged. Long downtime
+can require such manual repair. Catch-up coalescing does not reconstruct missed OI
+receipts or automatically expand native refresh windows. Final stored coverage and the
+remaining 356 spot gaps, one historical funding omission, explicit macro source dashes
+and absent September 2026 CPI are documented in [README](README.md#milestone-2-closeout).
+
+Native macro values and local version receipts never establish retrospective publisher
+vintages or release-time/as-of knowledge. No forward filling, derived inflation,
+cross-source alignment/correlation, forecasting, trading, RAG, public authentication or
+global model-spend service has been added. CI's deterministic suite remains 1060 tests;
+provider acceptance, live prose inspection and routine-operation review are separate
+forms of evidence. The public repository contains source and synthetic fixtures rather
+than development datasets, credentials, conversations or private acceptance ledgers.
