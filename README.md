@@ -10,9 +10,8 @@ HTTP and ten fixed agent tools. Six optional scheduled jobs wrap the same ingest
 commands. Deterministic tests and separately inspected live checks verify the local slice;
 document retrieval/RAG, other markets and public deployment remain future work.
 
-Start with the [screen-sharing walkthrough](docs/DEMO.md) and
-[Milestone 2 closeout](#milestone-2-closeout). Swagger and a terminal are sufficient;
-the published walkthrough uses committed commands and needs no private development files.
+See [Milestone 2 closeout](#milestone-2-closeout) for the demonstrated scope. The stored-data
+HTTP examples below work with Swagger or a terminal and require no private helpers.
 
 Treasury ingestion, read-only curve queries, and agent tools are also implemented: daily nominal par yields with native dates, exact percentage values, explicit missing reasons, and current-value provenance. Deterministic agent tests and a separately inspected live acceptance batch verify curves, paginated spreads, mixed-source evidence, and controlled limitations.
 
@@ -79,7 +78,6 @@ hourly and daily bars are derived from the canonical five-minute observations. T
 history defaults to 1990; macro jobs use their verified native history starts.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): reviewed design, semantics, trade-offs, and Milestone 1/2 acceptance evidence.
-- [docs/DEMO.md](docs/DEMO.md): reproducible local API/agent walkthrough for a screen-sharing demo.
 - [AGENTS.md](AGENTS.md): contributor commands, scope, and conventions.
 - [SECURITY.md](SECURITY.md): supported development scope, safe configuration and private vulnerability reporting.
 - [LICENSE](LICENSE): MIT terms for this project's source code.

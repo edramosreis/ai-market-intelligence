@@ -1174,8 +1174,8 @@ used one tool/one model request and stopped with the server's `missing_values` e
 The cumulative batch closed after nine requests with known usage, preserved earlier
 ledgers and no held reader connections during model waits. Its separate local spend
 guard does not give the persistent API an application-wide monetary cap. No production
-code repair or extra derived calculation was needed. See [the public demo route](docs/DEMO.md)
-for repeatable stored-data examples and the explicitly paid API option.
+code repair or extra derived calculation was needed. README provides repeatable
+stored-data HTTP examples and documents the optional paid agent endpoint.
 
 A separate 17:26 UTC reader review verified all 258 completed scheduled attempts' native
 audit identities, source/instrument filters, status and execution times. All six jobs had

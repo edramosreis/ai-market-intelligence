@@ -153,8 +153,8 @@ actual latest BTC/OI HTTP-reader parity passed. This does not imply prolonged re
 or complete source calendars. A bounded manual Coinbase job repaired 609 previously
 uncollected candles beyond the 72-hour refresh window, preserving the earlier 711152
 facts/provenance; retained source/storage gaps remain explicit. README and ARCHITECTURE
-section 16 record the dated scope. `docs/DEMO.md` provides a public screen-sharing route
-without requiring private helpers. Next milestone design is financial documents/RAG;
+section 16 record the dated scope. Ignored `.private/DEMO.md` provides the local
+screen-sharing route; keep it outside Git and Docker. Next milestone design is financial documents/RAG;
 do not begin it merely because structured-data closeout is complete.
 
 ## Build, Test, and Development Commands
