@@ -276,6 +276,33 @@ uv, action and container updates. GitHub security features and `master` rulesets
 separate administrator configuration; establish successful remote check runs before
 requiring them. Do not enable paid security products or change visibility implicitly.
 
+## Isolated document-development tooling
+
+Use `scripts/m3.py` from a separate linked worktree for M3 resources. It exclusively
+creates `.env.m3` / `.env.m3.test`, never copies the original `.env`, and checks the
+resolved standalone Compose model before mutation. M3 app/test images are explicitly
+`:m3` / `:m3-tests`; projects, networks, database, volume and localhost ports remain
+separate from both the demo and existing test project. Do not build `:local` from M3.
+Keep the shared hook intact and install verified Gitleaks in the new worktree's `.tools`.
+
+- `python scripts/m3.py init` and `python scripts/m3.py --test init`: fresh ignored
+  credentials; no services or database access, refuse overwrite.
+- `python scripts/m3.py validate` and `python scripts/m3.py --test validate`: resolved
+  target/credential/disabled-flag checks with nonsecret output; no container start.
+- `python scripts/m3.py --test build`: build only the distinct M3 test image.
+- `python scripts/m3.py --test quality`: Ruff format/check and strict mypy in that image.
+- `python scripts/m3.py --test test`: full deterministic suite on guarded `db-test` /
+  `market_intelligence_test`, fresh tmpfs storage, no live source/model calls.
+- `python scripts/m3.py --test down`: remove only the M3 test containers/network.
+
+Host dependencies use the existing locked uv installation procedure independently in
+this worktree. Development `build`, `db`, `migrate`, `check` and `api` actions are explicit
+opt-ins, never setup side effects. The development scheduler/agent remain disabled with
+no model keys; runtime cleanup/volume deletion and arbitrary command passthrough are
+not exposed. Original runtime state and approved native collection must stay untouched.
+Keep private context, configuration, document originals and acceptance records out of
+Git/Docker. No document schema/client or paid model/embedding use is introduced here.
+
 ## Coding Style & Naming Conventions
 
 Use descriptive names, four-space indentation, Ruff formatting with a 100-character limit, and strict mypy. Prefer synchronous I/O and SQLAlchemy Core with explicit PostgreSQL behavior over speculative frameworks. Use library URL construction, parameterized values, quoted identifiers, and sanitized errors. Use aware UTC instants and Decimal values; validate timestamp awareness, numeric precision/scale, and candle eligibility before persistence.

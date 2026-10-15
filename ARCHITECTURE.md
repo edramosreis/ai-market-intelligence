@@ -1200,3 +1200,32 @@ global model-spend service has been added. CI's deterministic suite remains 1060
 provider acceptance, live prose inspection and routine-operation review are separate
 forms of evidence. The public repository contains source and synthetic fixtures rather
 than development datasets, credentials, conversations or private acceptance ledgers.
+
+## 17. Isolated document-development tooling
+
+Document work uses a separate linked working tree and standalone Compose definitions.
+Git history and hooks can be shared; working files, Python environments, configuration,
+application tags, projects/networks, database/volume/roles and ports are independent.
+The existing release/demo checkout and its native collection remain operational.
+
+`compose.m3.yaml` targets project `ai-market-intelligence-m3`, application image
+`ai-market-intelligence:m3`, database `market_intelligence_m3` and volume
+`ai-market-intelligence-m3_postgres_data`. API/database bind to localhost 8001/55433
+by default. `compose.m3.test.yaml` uses `ai-market-intelligence-m3-tests` and explicit
+`ai-market-intelligence:m3-tests`, with no published port or persistent volume.
+Its existing fixture safety contract remains `db-test` / `market_intelligence_test`.
+
+The standard-library `scripts/m3.py` refuses a primary clone and exclusively generates
+independent ignored development/test credentials. It pins Compose/project/env paths,
+removes inherited application/Compose overrides, privately resolves the complete model
+and checks exact images, service commands, database/role credentials, mounts, build
+context, networks, ports, disabled flags and tmpfs before mutation. Source files can
+still be deliberately changed by a developer; this is a local operational guard,
+not a security boundary against arbitrary code or direct Docker commands.
+
+Initialization/validation start nothing. Separate build/test/quality/cleanup actions
+use only M3 resources. Runtime database initialization and API startup are individual
+opt-ins, not automatic setup. Scheduler/agent stay fixed off with no model keys;
+no development-volume deletion or arbitrary command passthrough is exposed. Existing
+migration head remains 0005. Acquisition, document versions, parsing/chunking, retrieval,
+vectors and research-model tools are later separately verified components.
