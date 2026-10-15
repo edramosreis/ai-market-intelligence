@@ -1,0 +1,116 @@
+# Standalone isolated development project. Use scripts/m3.py, never overlay compose.yaml.
+name: ai-market-intelligence-m3
+services:
+  api:
+    image: ai-market-intelligence:m3
+    command: [serve, --host, "0.0.0.0", --port, "8000"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${M3_API_PORT:?Run scripts/m3.py init}:8000"
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: market_intelligence_m3
+      POSTGRES_READ_USER: m3_reader
+      POSTGRES_READ_PASSWORD: ${M3_READ_PASSWORD:?Run scripts/m3.py init}
+      AGENT_ENABLED: "false"
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)"]
+      interval: 5s
+      timeout: 6s
+      retries: 10
+
+  db:
+    image: postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650
+    restart: "no"
+    ports:
+      - "127.0.0.1:${M3_POSTGRES_PORT:?Run scripts/m3.py init}:5432"
+    environment:
+      POSTGRES_DB: market_intelligence_m3
+      POSTGRES_USER: m3_admin
+      POSTGRES_PASSWORD: ${M3_ADMIN_PASSWORD:?Run scripts/m3.py init}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    profiles: [tools]
+    build:
+      context: .
+      target: runtime
+    image: ai-market-intelligence:m3
+    command: [init-db]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: market_intelligence_m3
+      POSTGRES_ADMIN_USER: m3_admin
+      POSTGRES_ADMIN_PASSWORD: ${M3_ADMIN_PASSWORD:?Run scripts/m3.py init}
+      POSTGRES_INGEST_USER: m3_ingest
+      POSTGRES_INGEST_PASSWORD: ${M3_INGEST_PASSWORD:?Run scripts/m3.py init}
+      POSTGRES_READ_USER: m3_reader
+      POSTGRES_READ_PASSWORD: ${M3_READ_PASSWORD:?Run scripts/m3.py init}
+
+  check:
+    profiles: [tools]
+    image: ai-market-intelligence:m3
+    command: [check-db]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: market_intelligence_m3
+      POSTGRES_READ_USER: m3_reader
+      POSTGRES_READ_PASSWORD: ${M3_READ_PASSWORD:?Run scripts/m3.py init}
+
+  ingest:
+    profiles: [tools]
+    image: ai-market-intelligence:m3
+    command: [ingest]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: market_intelligence_m3
+      POSTGRES_INGEST_USER: m3_ingest
+      POSTGRES_INGEST_PASSWORD: ${M3_INGEST_PASSWORD:?Run scripts/m3.py init}
+
+  scheduler:
+    profiles: [scheduler]
+    image: ai-market-intelligence:m3
+    command: [schedule, run]
+    restart: "no"
+    init: true
+    stop_grace_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: market_intelligence_m3
+      POSTGRES_INGEST_USER: m3_ingest
+      POSTGRES_INGEST_PASSWORD: ${M3_INGEST_PASSWORD:?Run scripts/m3.py init}
+      SCHEDULER_ENABLED: "false"
+      SCHEDULER_JOBS: ""
+
+volumes:
+  postgres_data:
+    name: ai-market-intelligence-m3_postgres_data

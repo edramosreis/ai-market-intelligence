@@ -1,0 +1,38 @@
+# Separate from both the demo and compose.test.yaml. No host ports or persistent volume.
+name: ai-market-intelligence-m3-tests
+services:
+  db-test:
+    image: postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650
+    restart: "no"
+    environment:
+      POSTGRES_DB: market_intelligence_test
+      POSTGRES_USER: m3_test_admin
+      POSTGRES_PASSWORD: ${M3_ADMIN_PASSWORD:?Run scripts/m3.py --test init}
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    build:
+      context: .
+      target: development
+    image: ai-market-intelligence:m3-tests
+    restart: "no"
+    depends_on:
+      db-test:
+        condition: service_healthy
+    environment:
+      RUN_POSTGRES_TESTS: "1"
+      POSTGRES_HOST: db-test
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: market_intelligence_test
+      POSTGRES_ADMIN_USER: m3_test_admin
+      POSTGRES_ADMIN_PASSWORD: ${M3_ADMIN_PASSWORD:?Run scripts/m3.py --test init}
+      POSTGRES_INGEST_USER: m3_test_ingest
+      POSTGRES_INGEST_PASSWORD: ${M3_INGEST_PASSWORD:?Run scripts/m3.py --test init}
+      POSTGRES_READ_USER: m3_test_reader
+      POSTGRES_READ_PASSWORD: ${M3_READ_PASSWORD:?Run scripts/m3.py --test init}
