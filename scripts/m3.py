@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import socket
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -269,8 +270,18 @@ def validate_model(
         )
 
 
+def check_ports(values: Mapping[str, str], service: str) -> None:
+    for key in ("M3_POSTGRES_PORT" if service == "db" else "M3_API_PORT",):
+        with socket.socket() as probe:
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            try:
+                probe.bind(("127.0.0.1", int(values[key])))
+            except OSError:
+                raise IsolationError("An isolated localhost port is unavailable.") from None
+
+
 def run(root: Path, testing: bool, action: str) -> int:
-    require(action == "validate", "Only validation is available at this checkpoint.")
     check_worktree(root)
     values = read_settings(root, testing)
     environment = compose_environment(os.environ)
@@ -295,14 +306,66 @@ def run(root: Path, testing: bool, action: str) -> int:
             }
         )
     )
+    if action == "validate":
+        return 0
+    if action in {"db", "api"}:
+        check_ports(values, action)
+    operations: list[list[str]]
+    if action == "quality":
+        operations = [
+            ["run", "--rm", "--no-deps", "tests", *command]
+            for command in (
+                ["ruff", "format", "--check", "src", "migrations", "tests", "scripts"],
+                ["ruff", "check", "src", "migrations", "tests", "scripts"],
+                ["mypy"],
+            )
+        ]
+    else:
+        operations = [
+            {
+                "build": ["build", "tests" if testing else "migrate"],
+                "test": ["up", "--abort-on-container-exit", "--exit-code-from", "tests"],
+                "down": ["down"],
+                "db": ["up", "-d", "--wait", "db"],
+                "api": ["up", "-d", "--wait", "api"],
+                "migrate": ["run", "--rm", "migrate"],
+                "check": ["run", "--rm", "check"],
+            }[action]
+        ]
+    for arguments in operations:
+        result = subprocess.run(
+            [*prefix, *arguments], cwd=root, env=environment, check=False, timeout=1800
+        )
+        if result.returncode:
+            return result.returncode
     return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--test", action="store_true", help="Use the independent test project.")
-    parser.add_argument("action", choices=("init", "validate"))
+    parser.add_argument(
+        "--test", action="store_true", help="Use the independent tmpfs test project."
+    )
+    parser.add_argument(
+        "action",
+        choices=(
+            "init",
+            "validate",
+            "build",
+            "quality",
+            "test",
+            "down",
+            "db",
+            "migrate",
+            "api",
+            "check",
+        ),
+    )
     arguments = parser.parse_args(argv)
+    if arguments.action in {"quality", "test", "down"} and not arguments.test:
+        parser.error("This action requires --test; runtime cleanup is deliberately not exposed.")
+    if arguments.action in {"db", "migrate", "api", "check"} and arguments.test:
+        parser.error("This action is for the isolated development project.")
     root = Path(__file__).resolve().parents[1]
     try:
         if arguments.action == "init":

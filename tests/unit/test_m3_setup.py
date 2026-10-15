@@ -1,4 +1,4 @@
-"""Verify isolated setup refuses shared configuration and resources."""
+"""The local launcher must refuse shared resources before any Docker mutation."""
 
 import copy
 import importlib.util
@@ -315,6 +315,20 @@ def test_test_boundary_preserved(launcher: ModuleType, linked_root: Path, mutati
         launcher.validate_model(model, linked_root, True, values)
 
 
+def test_validation_precedes_docker_mutation(
+    launcher: ModuleType, linked_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    values = configuration(linked_root, True)
+    model = resolved_model(linked_root, values, True)
+    model["services"]["tests"]["environment"]["POSTGRES_HOST"] = "db"
+    execute = MagicMock(return_value=subprocess.CompletedProcess([], 0, json.dumps(model), ""))
+    monkeypatch.setattr(launcher.subprocess, "run", execute)
+    with pytest.raises(launcher.IsolationError):
+        launcher.run(linked_root, True, "test")
+    assert execute.call_count == 1
+    assert execute.call_args.args[0][-3:] == ["config", "--format", "json"]
+
+
 def test_validation_output_is_redacted_and_paths_explicit(
     launcher: ModuleType,
     linked_root: Path,
@@ -334,3 +348,17 @@ def test_validation_output_is_redacted_and_paths_explicit(
     assert "COMPOSE_FILE" not in execute.call_args.kwargs["env"]
     output = capsys.readouterr().out
     assert all(value not in output for value in values.values())
+
+
+def test_occupied_port_refuses_start(launcher: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    probe = MagicMock()
+    probe.__enter__.return_value.bind.side_effect = OSError("synthetic occupied port")
+    monkeypatch.setattr(launcher.socket, "socket", MagicMock(return_value=probe))
+    with pytest.raises(launcher.IsolationError, match="unavailable"):
+        launcher.check_ports({"M3_API_PORT": "8001"}, "api")
+
+
+def test_runtime_cleanup_not_exposed(launcher: ModuleType) -> None:
+    with pytest.raises(SystemExit) as error:
+        launcher.main(["down"])
+    assert error.value.code == 2
