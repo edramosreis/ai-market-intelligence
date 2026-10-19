@@ -16,8 +16,8 @@ from market_intelligence.ingestion.models import (
     TimeWindow,
     closed_cutoff,
     monthly_windows,
-    utc_now,
 )
+from market_intelligence.time_utils import utc_now
 
 
 def ingest(

@@ -10,7 +10,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from market_intelligence.ingestion.models import TimeWindow, aligned, as_utc, parse_instant
+from market_intelligence.ingestion.models import TimeWindow, aligned
+from market_intelligence.time_utils import as_utc, parse_instant
 
 RESOLUTIONS = (300, 900, 3600, 86400)
 

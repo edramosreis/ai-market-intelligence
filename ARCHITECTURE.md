@@ -129,6 +129,7 @@ ai-market-intelligence/
       __init__.py
       __main__.py
       config.py
+      time_utils.py             # shared UTC conversion and timestamp parsing
       cli.py                    # standard-library argparse entry point
       api.py                    # FastAPI transport, lifespan, safe errors, health
       db/

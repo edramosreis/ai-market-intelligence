@@ -14,7 +14,6 @@ from market_intelligence.db.macro_tables import macro_ingestion_runs as runs
 from market_intelligence.db.macro_tables import macro_observed_versions as versions
 from market_intelligence.db.macro_tables import macro_series as catalog
 from market_intelligence.db.macro_tables import macro_version_footnotes as notes
-from market_intelligence.ingestion.models import utc_now
 from market_intelligence.macro.models import BLS_NOTICE, CATALOG, MacroSeries, utc
 from market_intelligence.macro.query_models import (
     MacroCoverage,
@@ -36,6 +35,7 @@ from market_intelligence.macro.query_models import (
     version_cursor,
 )
 from market_intelligence.queries.models import QueryValidationError
+from market_intelligence.time_utils import utc_now
 
 
 class MacroQueries:

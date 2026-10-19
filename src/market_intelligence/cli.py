@@ -35,8 +35,6 @@ from market_intelligence.ingestion.models import (
     IngestionError,
     TimeWindow,
     closed_cutoff,
-    parse_instant,
-    utc_now,
 )
 from market_intelligence.ingestion.service import ingest
 from market_intelligence.macro import cli as macro_cli
@@ -44,6 +42,7 @@ from market_intelligence.macro.jobs import MacroIngestionError
 from market_intelligence.macro.models import MacroProvider
 from market_intelligence.macro.storage_models import MacroFailureCode
 from market_intelligence.scheduler import cli as scheduler_cli
+from market_intelligence.time_utils import parse_instant, utc_now
 from market_intelligence.treasury.client import TreasuryClient
 from market_intelligence.treasury.models import (
     DATASET_CODE,
