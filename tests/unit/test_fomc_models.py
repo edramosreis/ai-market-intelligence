@@ -6,8 +6,8 @@ from datetime import date, datetime
 
 import pytest
 
-from market_intelligence.documents.fomc import PILOT_DOCUMENTS, pilot_document
-from market_intelligence.documents.models import CALENDAR_URL, DocumentKind, DocumentSpec
+from market_intelligence.fomc.catalog import PILOT_DOCUMENTS, pilot_document
+from market_intelligence.fomc.models import CALENDAR_URL, DocumentKind, DocumentSpec
 
 
 def test_four_selected_documents_keep_meeting_and_publication_dates_separate() -> None:

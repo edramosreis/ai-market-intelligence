@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from market_intelligence.documents.models import CALENDAR_URL, ORIGIN, DocumentKind, DocumentSpec
+from market_intelligence.fomc.models import CALENDAR_URL, ORIGIN, DocumentKind, DocumentSpec
 
 PILOT_DOCUMENTS: tuple[DocumentSpec, ...] = (
     DocumentSpec(

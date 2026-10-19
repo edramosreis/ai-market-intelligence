@@ -12,8 +12,8 @@ from uuid import UUID, uuid4
 
 import httpx
 
-from market_intelligence.documents.fomc import pilot_document
-from market_intelligence.documents.models import DocumentSpec, identity
+from market_intelligence.fomc.catalog import pilot_document
+from market_intelligence.fomc.models import DocumentSpec, identity
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_BYTES = 16 * 1024 * 1024

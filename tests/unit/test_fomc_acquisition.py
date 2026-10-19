@@ -7,9 +7,9 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from market_intelligence.documents import client as client_module
-from market_intelligence.documents.client import AcquisitionError, FomcAcquisitionClient
-from market_intelligence.documents.fomc import PILOT_DOCUMENTS
+from market_intelligence.fomc import client as client_module
+from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
+from market_intelligence.fomc.client import AcquisitionError, FomcAcquisitionClient
 
 DOCUMENT_ID = PILOT_DOCUMENTS[0].document_id
 BODY = b"<html><title>Synthetic statement</title><body>Test evidence</body></html>"

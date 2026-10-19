@@ -1232,7 +1232,7 @@ vectors and research-model tools are later separately verified components.
 
 ## 18. Fixed FOMC acquisition foundations
 
-`documents/models.py`, `fomc.py` and `client.py` separate logical identities, reviewed
+`fomc/models.py`, `catalog.py` and `client.py` separate logical identities, reviewed
 source metadata and raw HTTP receipt candidates. The fixed pilot is four official
 Board HTML documents: September/November 2024 statements and minutes. Publication date
 evidence locators point to the statement page or official calendar. Explicit statement

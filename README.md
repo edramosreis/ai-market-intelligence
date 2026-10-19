@@ -1066,14 +1066,14 @@ preserving the development volume.
 
 ## FOMC acquisition foundations
 
-`documents/fomc.py` defines a fixed pilot of Board-hosted HTML statements and minutes
+`fomc/catalog.py` defines a fixed pilot of Board-hosted HTML statements and minutes
 for the September 17–18 and November 6–7, 2024 meetings. Minutes publication dates are
 October 9 and November 26; meeting dates and local receipt times remain distinct.
 The [official calendar](https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm)
 provides those links/dates. [Board reuse terms](https://www.federalreserve.gov/disclaimer.htm)
 require source attribution and distinguish third-party material and protected logos.
 
-`documents/client.py` provides an in-memory raw acquisition client, with no CLI, database
+`fomc/client.py` provides an in-memory raw acquisition client, with no CLI, database
 or artifact writes. Callers select only fixed document IDs. It returns unvalidated HTML
 candidates with content hashes, namespaced raw-version IDs, separate receipt UUID/times
 and bounded cache hints. HTTP success does not establish matching document content,
@@ -1094,7 +1094,7 @@ No additional dependency is needed beyond the existing locked HTTPX and Python s
 Run synthetic checks from the M3 worktree (no provider/model/database access):
 
 ```powershell
-.venv\Scripts\python.exe -m pytest tests/unit/test_document_models.py tests/unit/test_fomc_acquisition.py
+.venv\Scripts\python.exe -m pytest tests/unit/test_fomc_models.py tests/unit/test_fomc_acquisition.py
 ```
 
 Use the guarded M3 build/quality/test commands above for the full isolated suite.

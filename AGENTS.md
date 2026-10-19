@@ -341,9 +341,9 @@ Never commit credentials, keys, private datasets, dumps, or personal prompts. `.
 
 ## FOMC acquisition foundations
 
-`documents/models.py` defines namespaced reproducible document IDs and distinct meeting/
-publication metadata; `documents/fomc.py` fixes four September/November 2024 Board HTML
-statements/minutes. `documents/client.py` returns raw in-memory candidates and separate
+`fomc/models.py` defines namespaced reproducible document IDs and distinct meeting/
+publication metadata; `fomc/catalog.py` fixes four September/November 2024 Board HTML
+statements/minutes. `fomc/client.py` returns raw in-memory candidates and separate
 receipt evidence using the existing locked HTTPX. It has no CLI, storage/schema or
 reader/agent integration. HTTP success does not verify HTML identity or publication.
 
@@ -355,7 +355,7 @@ stop on source rejection/throttling/Retry-After and halt the instance on termina
 Cache hints remain separate from publication evidence; unchanged raw bytes preserve
 version identity while separate successful reads have separate receipt UUIDs.
 
-From the M3 worktree, run `.venv\Scripts\python.exe -m pytest tests/unit/test_document_models.py tests/unit/test_fomc_acquisition.py`
+From the M3 worktree, run `.venv\Scripts\python.exe -m pytest tests/unit/test_fomc_models.py tests/unit/test_fomc_acquisition.py`
 for synthetic focused checks. Full build/quality/PostgreSQL checks use `scripts/m3.py
 --test build`, `--test quality`, `--test test`, then `--test down` as documented above.
 Do not use deterministic tests to fetch live documents or make paid calls. No additional
