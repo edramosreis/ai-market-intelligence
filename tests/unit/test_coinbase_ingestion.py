@@ -8,8 +8,8 @@ from typing import Any
 import httpx
 import pytest
 
-from market_intelligence.ingestion.coinbase import BASE_URL, CoinbaseClient, parse_candles
-from market_intelligence.ingestion.models import (
+from market_intelligence.coinbase.client import BASE_URL, CoinbaseClient, parse_candles
+from market_intelligence.coinbase.models import (
     ErrorCode,
     IngestionError,
     TimeWindow,

@@ -13,13 +13,13 @@ import sqlalchemy as sa
 from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from market_intelligence.coinbase.client import BASE_URL, CoinbaseClient
+from market_intelligence.coinbase.models import ErrorCode, IngestionError, TimeWindow
+from market_intelligence.coinbase.service import ingest
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.candle_store import CandleStore
 from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.tables import candles, ingestion_runs
-from market_intelligence.ingestion.coinbase import BASE_URL, CoinbaseClient
-from market_intelligence.ingestion.models import ErrorCode, IngestionError, TimeWindow
-from market_intelligence.ingestion.service import ingest
 from market_intelligence.time_utils import parse_instant
 
 pytestmark = pytest.mark.integration

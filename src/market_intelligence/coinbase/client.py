@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from market_intelligence.ingestion.models import (
+from market_intelligence.coinbase.models import (
     INTERVAL,
     Candle,
     ErrorCode,

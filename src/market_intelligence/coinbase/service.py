@@ -7,9 +7,8 @@ from datetime import datetime
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from market_intelligence.db.candle_store import CandleStore
-from market_intelligence.ingestion.coinbase import CoinbaseClient
-from market_intelligence.ingestion.models import (
+from market_intelligence.coinbase.client import CoinbaseClient
+from market_intelligence.coinbase.models import (
     ChunkReport,
     ErrorCode,
     IngestionError,
@@ -17,6 +16,7 @@ from market_intelligence.ingestion.models import (
     closed_cutoff,
     monthly_windows,
 )
+from market_intelligence.db.candle_store import CandleStore
 from market_intelligence.time_utils import utc_now
 
 

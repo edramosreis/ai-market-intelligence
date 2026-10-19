@@ -1008,3 +1008,11 @@ candles, 86 Coinbase audits, 128,758 Treasury facts and 446 Treasury audits. The
 API/database are healthy, the persistent agent remains disabled, and no model call or
 archive access was made for these checks. Test containers/network were removed while
 preserving the development volume.
+
+## Source package organization
+
+`coinbase/` contains the fixed Coinbase spot-candle models, HTTP client (`client.py`)
+and ingestion orchestration. `time_utils.py` supplies shared UTC conversion, current
+UTC time and explicit timestamp parsing to native readers, providers, API, agent and
+scheduler code. Five-minute candle alignment and settling rules remain Coinbase-specific.
+The `ingest` command and all HTTP routes, source contracts and database objects are unchanged.

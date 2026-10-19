@@ -4,8 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from market_intelligence.coinbase.models import TimeWindow
 from market_intelligence.config import ApiSettings
-from market_intelligence.ingestion.models import TimeWindow
 from market_intelligence.queries.models import (
     QueryValidationError,
     cursor_after,

@@ -137,10 +137,10 @@ ai-market-intelligence/
         tables.py
         setup.py                # role provisioning and explicit grants
         candle_store.py         # monthly persistence, audit, and writer lock
-      ingestion/
+      coinbase/
         __init__.py
         models.py               # exact candle validation and UTC windows
-        coinbase.py             # public HTTP contract, paging, and bounded retries
+        client.py               # public HTTP contract, paging, and bounded retries
         service.py              # fetch/validate/commit and explicit resume
       queries/
         __init__.py
