@@ -18,6 +18,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Validate isolated development configuration
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/m3-config" HEAD
+          python3 "$RUNNER_TEMP/m3-config/scripts/m3.py" init
+          python3 "$RUNNER_TEMP/m3-config/scripts/m3.py" --test init
+          python3 "$RUNNER_TEMP/m3-config/scripts/m3.py" validate
+          python3 "$RUNNER_TEMP/m3-config/scripts/m3.py" --test validate
+
       - name: Generate temporary test configuration
         run: python3 scripts/init_local_env.py
 

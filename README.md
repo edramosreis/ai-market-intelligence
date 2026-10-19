@@ -142,6 +142,61 @@ establish publication delay. Native spot returns, Treasury benchmark spreads and
 sum/mean calculations satisfy this slice's analytical scope; cross-source alignment,
 correlations, derived inflation, trading and forecasting are outside it.
 
+## Isolated document-development environment
+
+Use a separate linked Git worktree for document development while retaining an existing
+installation for demos. The standalone `compose.m3.yaml` and `compose.m3.test.yaml`
+use independent resources; never overlay them onto `compose.yaml` or build its `:local`
+tag from the development worktree. Install the locked host dependencies in that worktree
+using the host-development instructions below, and preserve its shared Git hook.
+
+Run the standard-library launcher from the linked worktree:
+
+```powershell
+python scripts/m3.py init
+python scripts/m3.py --test init
+python scripts/m3.py validate
+python scripts/m3.py --test validate
+```
+
+Initialization exclusively creates ignored `.env.m3` and `.env.m3.test`, with independent
+random credentials. It reads no demo configuration, refuses overwrite and starts nothing.
+The launcher refuses a primary clone, pins the working directory/project/Compose/env file,
+removes inherited application and Compose overrides, and validates the resolved resource
+model before any build/start/cleanup. Validation prints only a nonsecret summary.
+
+| Resource | Isolated development | Isolated tests |
+| --- | --- | --- |
+| Project | `ai-market-intelligence-m3` | `ai-market-intelligence-m3-tests` |
+| Application image | `ai-market-intelligence:m3` | `ai-market-intelligence:m3-tests` |
+| Database | `market_intelligence_m3` on its own network | Guarded `db-test` / `market_intelligence_test` |
+| Storage | `ai-market-intelligence-m3_postgres_data` | tmpfs; no persistent volume or host port |
+| Host ports | Localhost API 8001 / PostgreSQL 55433 | None |
+| Configuration | `.env.m3`; `m3_admin`, `m3_ingest`, `m3_reader` | `.env.m3.test`; separate `m3_test_*` roles |
+
+Run all deterministic tests and quality checks without touching an existing test project:
+
+```powershell
+python scripts/m3.py --test build
+python scripts/m3.py --test quality
+python scripts/m3.py --test test
+python scripts/m3.py --test down
+```
+
+Test commands use only synthetic providers/model responses and the guarded isolated
+PostgreSQL database. Cleanup targets only the M3 test project and preserves images.
+The launcher exposes no development-volume deletion or scheduler activation command.
+Scheduler and agent are fixed off; no model credentials enter these containers.
+
+Provisioning the separate development database/API is opt-in: `build`, `db`, `migrate`,
+`check`, then `api` are individual launcher actions. They never run as part of `init`
+or validation. Review resolved isolation before provisioning, apply migrations before
+starting the API, and use no demo database or copied credentials. The `db`/`api` starts
+refuse occupied host ports, including an already running service; inspect that service
+instead of recreating it automatically. Alternative unprivileged ports can be set in
+ignored `.env.m3`; the launcher rejects the demo ports and duplicate/invalid ports.
+Document acquisition, parsing, retrieval and model integration remain separate features.
+
 ## Start the local environment
 
 Run commands from the repository root. Start Docker Desktop with Linux containers and Docker Compose v2. A host Python 3.14 interpreter is needed for credential generation; application containers use Python 3.14.8 and PostgreSQL 18.6, with both images pinned by digest. Host development supports Python 3.14.x.
