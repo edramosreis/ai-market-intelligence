@@ -1063,3 +1063,39 @@ candles, 86 Coinbase audits, 128,758 Treasury facts and 446 Treasury audits. The
 API/database are healthy, the persistent agent remains disabled, and no model call or
 archive access was made for these checks. Test containers/network were removed while
 preserving the development volume.
+
+## FOMC acquisition foundations
+
+`documents/fomc.py` defines a fixed pilot of Board-hosted HTML statements and minutes
+for the September 17–18 and November 6–7, 2024 meetings. Minutes publication dates are
+October 9 and November 26; meeting dates and local receipt times remain distinct.
+The [official calendar](https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm)
+provides those links/dates. [Board reuse terms](https://www.federalreserve.gov/disclaimer.htm)
+require source attribution and distinguish third-party material and protected logos.
+
+`documents/client.py` provides an in-memory raw acquisition client, with no CLI, database
+or artifact writes. Callers select only fixed document IDs. It returns unvalidated HTML
+candidates with content hashes, namespaced raw-version IDs, separate receipt UUID/times
+and bounded cache hints. HTTP success does not establish matching document content,
+complete source coverage, a policy correction or historical market knowledge.
+
+One client instance shares a maximum of eight attempts, two per URL, at least one-second
+spacing, and a 120-second monotonic budget checked around requests and streaming reads.
+Requests have bounded inactivity timeouts; a blocked read may finish after that budget
+before the next deadline check. Each response has separate 2 MiB wire/entity bounds;
+the command's 16 MiB aggregate counts both wire and decoded bytes, including failed reads.
+Only identity and bounded single-member gzip decoding are supported. Redirects and
+unsolicited 304 responses fail; 401/403/429 and transient responses with Retry-After stop
+without retry. Other selected transient failures get at most two attempts. Terminal
+acquisition errors halt that instance. Client-default auth, headers, cookies and query
+parameters are excluded from the fresh public request.
+
+No additional dependency is needed beyond the existing locked HTTPX and Python stdlib.
+Run synthetic checks from the M3 worktree (no provider/model/database access):
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests/unit/test_document_models.py tests/unit/test_fomc_acquisition.py
+```
+
+Use the guarded M3 build/quality/test commands above for the full isolated suite.
+These foundations expose no document ingestion, parsing, retrieval or agent endpoint.

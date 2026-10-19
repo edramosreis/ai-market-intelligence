@@ -1229,3 +1229,37 @@ opt-ins, not automatic setup. Scheduler/agent stay fixed off with no model keys;
 no development-volume deletion or arbitrary command passthrough is exposed. Existing
 migration head remains 0005. Acquisition, document versions, parsing/chunking, retrieval,
 vectors and research-model tools are later separately verified components.
+
+## 18. Fixed FOMC acquisition foundations
+
+`documents/models.py`, `fomc.py` and `client.py` separate logical identities, reviewed
+source metadata and raw HTTP receipt candidates. The fixed pilot is four official
+Board HTML documents: September/November 2024 statements and minutes. Publication date
+evidence locators point to the statement page or official calendar. Explicit statement
+release-time text is retained separately; date precision does not imply a reconstructed
+minutes release instant. Receipt/cache times never replace publication dates.
+
+Logical IDs are SHA-256 of the canonical JSON tuple `["document-v1", source, kind,
+meeting_end]`, where source is `federal_reserve_board/fomc` and the date is ISO format.
+URLs and mutable publication metadata do not define that identity. Raw hashes cover
+HTTP content-decoded bytes before character decoding; raw-version IDs hash the canonical
+tuple `["raw-html-v1", document_id, raw_sha256]`. Equal entity bytes after gzip/identity
+transport preserve the raw version; separate successful reads have separate receipt
+UUIDs. Changed bytes establish a locally different representation, not a policy correction.
+
+The synchronous HTTPX client permits only manifest document IDs and exact official URLs,
+without redirects, implicit discovery or inherited client auth/cookie/header/query data.
+It uses bounded requests/streaming, per-URL and command attempt budgets, sequential pacing,
+wire/entity/aggregate size caps and bounded gzip expansion. Deadline checks occur before
+requests and around reads, with bounded inactivity timeouts rather than a preemptive wall
+clock kill. Fatal errors halt further reads on that instance; transient retries consume
+the same budgets. Source rejection/throttling and server Retry-After stop immediately.
+HTTP validators are optional bounded hints, never publication evidence; no conditional
+request or 304 cache reuse is implemented. Errors do not expose upstream response bodies.
+
+Results remain in memory, with body text excluded from dataclass repr. HTML identity,
+encoding/layout, title and source-date verification have not been established merely by
+transport success. There is no persistence, migration, ingestion CLI, parsing/chunking,
+retrieval or model integration here. Existing migrations 0001–0005, structured readers,
+API, scheduler, agent tools and locked dependencies are unchanged. Tests use synthetic
+HTTPX streams and injected clocks, with no live provider/model requests or database use.

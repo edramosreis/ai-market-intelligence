@@ -338,3 +338,25 @@ Commit file additions, edits, and removals promptly in small, coherent batches a
 ## Security & Configuration
 
 Never commit credentials, keys, private datasets, dumps, or personal prompts. `.env.example` contains placeholders; actual configuration belongs in ignored `.env` or runtime environment. Supply only needed credentials: administrator for bootstrap/migrations, writer for ingestion, reader for API/agent. Only the API receives optional OpenAI configuration. Market endpoints and deterministic tests need no real OpenAI key. Do not persist conversations or log full prompts/answers, authorization headers, or SDK payloads. Exclude secrets from Docker context and Git. Update this guide and README when commands, layout, or dependencies change.
+
+## FOMC acquisition foundations
+
+`documents/models.py` defines namespaced reproducible document IDs and distinct meeting/
+publication metadata; `documents/fomc.py` fixes four September/November 2024 Board HTML
+statements/minutes. `documents/client.py` returns raw in-memory candidates and separate
+receipt evidence using the existing locked HTTPX. It has no CLI, storage/schema or
+reader/agent integration. HTTP success does not verify HTML identity or publication.
+
+Preserve the fixed-target boundary, fresh requests without inherited auth/headers/query/
+cookies, shared eight-attempt/two-per-URL limits, minimum one-second spacing, bounded
+inactivity timeouts and deadline checks, 2 MiB wire/entity and 16 MiB combined aggregate
+caps, bounded single-member gzip and response cleanup. Reject redirects/unsolicited 304;
+stop on source rejection/throttling/Retry-After and halt the instance on terminal errors.
+Cache hints remain separate from publication evidence; unchanged raw bytes preserve
+version identity while separate successful reads have separate receipt UUIDs.
+
+From the M3 worktree, run `.venv\Scripts\python.exe -m pytest tests/unit/test_document_models.py tests/unit/test_fomc_acquisition.py`
+for synthetic focused checks. Full build/quality/PostgreSQL checks use `scripts/m3.py
+--test build`, `--test quality`, `--test test`, then `--test down` as documented above.
+Do not use deterministic tests to fetch live documents or make paid calls. No additional
+installation step or dependency is introduced by this component.
