@@ -332,3 +332,53 @@ def test_same_url_cannot_reset_attempt_budget_by_fetching_again() -> None:
         with pytest.raises(AcquisitionError, match="^request_limit$"):
             client.fetch(DOCUMENT_ID)
     assert client.requests_used == 2
+
+
+def test_changed_bytes_and_logical_document_have_separate_version_identities() -> None:
+    changed = BODY.replace(b"Test evidence", b"Changed evidence")
+    replies = iter([response(), response(body=changed), response()])
+    with httpx.Client(transport=httpx.MockTransport(lambda _: next(replies))) as http:
+        client = acquisition(http, Clock())
+        initial = client.fetch(DOCUMENT_ID)
+        update = client.fetch(DOCUMENT_ID)
+        other = client.fetch(PILOT_DOCUMENTS[1].document_id)
+    assert initial.document.document_id == update.document.document_id
+    assert initial.raw_sha256 != update.raw_sha256
+    assert initial.raw_version_id != update.raw_version_id
+    assert initial.raw_sha256 == other.raw_sha256
+    assert initial.raw_version_id != other.raw_version_id
+
+
+def test_interrupted_read_closes_partial_stream_and_retries_from_empty_body() -> None:
+    class InterruptedStream(Stream):
+        def __iter__(self) -> Iterator[bytes]:
+            yield BODY[:5]
+            raise httpx.ReadError("private upstream failure")
+
+    stream = InterruptedStream([])
+    replies = iter(
+        [
+            httpx.Response(200, headers={"Content-Type": "text/html"}, stream=stream),
+            response(),
+        ]
+    )
+    with httpx.Client(transport=httpx.MockTransport(lambda _: next(replies))) as http:
+        client = acquisition(http, Clock())
+        result = client.fetch(DOCUMENT_ID)
+    assert stream.closed and result.body == BODY
+    assert client.requests_used == 2 and client.bytes_used == 2 * (len(BODY) + 5)
+
+
+def test_spacing_that_cannot_fit_deadline_makes_no_second_request() -> None:
+    clock = Clock()
+    with httpx.Client(transport=httpx.MockTransport(lambda _: response())) as http:
+        client = FomcAcquisitionClient(
+            http,
+            max_seconds=0.5,
+            monotonic=clock.monotonic,
+            sleep=clock.sleep,
+        )
+        client.fetch(DOCUMENT_ID)
+        with pytest.raises(AcquisitionError, match="^deadline_exceeded$"):
+            client.fetch(PILOT_DOCUMENTS[1].document_id)
+    assert client.requests_used == 1 and not clock.sleeps
