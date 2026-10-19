@@ -3,6 +3,7 @@
 import hashlib
 import math
 import time
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -142,7 +143,7 @@ class FomcAcquisitionClient:
 
     def _read(self, response: httpx.Response) -> tuple[bytes, int, str]:
         encoding = response.headers.get("content-encoding", "identity").strip().lower()
-        if encoding != "identity":
+        if encoding not in {"identity", "gzip"}:
             raise AcquisitionError(AcquisitionErrorCode.INVALID_RESPONSE)
         length = response.headers.get("content-length")
         if length is not None:
@@ -150,17 +151,38 @@ class FomcAcquisitionClient:
                 raise AcquisitionError(AcquisitionErrorCode.INVALID_RESPONSE)
             if int(length) > MAX_RESPONSE_BYTES:
                 raise AcquisitionError(AcquisitionErrorCode.SIZE_LIMIT)
-        body = bytearray()
+        body, encoded_size = bytearray(), 0
+        decoder = zlib.decompressobj(16 + zlib.MAX_WBITS) if encoding == "gzip" else None
         for chunk in response.iter_raw():
             self._check_deadline()
-            self._count_bytes(2 * len(chunk))  # Identity encoding: wire and entity counts.
-            if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
+            encoded_size += len(chunk)
+            self._count_bytes(len(chunk))
+            if encoded_size > MAX_RESPONSE_BYTES:
                 raise AcquisitionError(AcquisitionErrorCode.SIZE_LIMIT)
-            body.extend(chunk)
+            try:
+                # Bound expansion inside zlib, before an oversized allocation can occur.
+                decoded = (
+                    decoder.decompress(chunk, MAX_RESPONSE_BYTES - len(body) + 1)
+                    if decoder is not None
+                    else chunk
+                )
+            except zlib.error:
+                raise AcquisitionError(AcquisitionErrorCode.INVALID_RESPONSE) from None
+            self._check_deadline()
+            self._count_bytes(len(decoded))
+            if len(body) + len(decoded) > MAX_RESPONSE_BYTES:
+                raise AcquisitionError(AcquisitionErrorCode.SIZE_LIMIT)
+            if decoder is not None and decoder.unused_data:
+                raise AcquisitionError(AcquisitionErrorCode.INVALID_RESPONSE)
+            body.extend(decoded)
         self._check_deadline()
-        if not body or (length is not None and int(length) != len(body)):
+        if (
+            not body
+            or (length is not None and int(length) != encoded_size)
+            or (decoder is not None and not decoder.eof)
+        ):
             raise AcquisitionError(AcquisitionErrorCode.INVALID_RESPONSE)
-        return bytes(body), len(body), encoding
+        return bytes(body), encoded_size, encoding
 
     def fetch(self, document_id: str) -> FetchedDocument:
         document = pilot_document(document_id)  # No URL input or implicit discovery.
@@ -183,7 +205,7 @@ class FomcAcquisitionClient:
                 document.url,
                 headers={
                     "Accept": "text/html",
-                    "Accept-Encoding": "identity",
+                    "Accept-Encoding": "gzip, identity",
                     "User-Agent": "ai-market-intelligence-fomc/0.1",
                 },
                 extensions={

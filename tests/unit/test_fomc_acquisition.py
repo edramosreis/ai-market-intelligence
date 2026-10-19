@@ -1,11 +1,13 @@
 """Synthetic raw transport only; no source requests, artifact writes or database access."""
 
+import gzip
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 
+from market_intelligence.documents import client as client_module
 from market_intelligence.documents.client import AcquisitionError, FomcAcquisitionClient
 from market_intelligence.documents.fomc import PILOT_DOCUMENTS
 
@@ -71,7 +73,7 @@ def test_exact_target_and_raw_receipts_ignore_inherited_http_settings() -> None:
         replay = client.fetch(DOCUMENT_ID)
     assert str(calls[0].url) == PILOT_DOCUMENTS[0].url
     assert not {"authorization", "cookie", "x-private"} & set(calls[0].headers)
-    assert calls[0].headers["accept-encoding"] == "identity"
+    assert calls[0].headers["accept-encoding"] == "gzip, identity"
     assert calls[0].extensions["timeout"] == {"connect": 5, "read": 20, "write": 20, "pool": 20}
     assert first.body == replay.body == BODY
     assert first.raw_sha256 == replay.raw_sha256 and first.raw_version_id == replay.raw_version_id
@@ -244,3 +246,89 @@ def test_invalid_media_empty_and_misleading_length_rejected(
     ):
         acquisition(http, Clock()).fetch(DOCUMENT_ID)
     assert result.is_closed
+
+
+def test_gzip_and_identity_encodings_have_the_same_raw_version() -> None:
+    compressed = gzip.compress(BODY, mtime=0)
+    replies = iter(
+        [
+            response(),
+            response(
+                body=compressed,
+                headers={"Content-Encoding": "gzip", "Content-Length": str(len(compressed))},
+            ),
+        ]
+    )
+    with httpx.Client(transport=httpx.MockTransport(lambda _: next(replies))) as http:
+        client = acquisition(http, Clock())
+        plain = client.fetch(DOCUMENT_ID)
+        zipped = client.fetch(DOCUMENT_ID)
+    assert zipped.body == plain.body == BODY
+    assert zipped.raw_sha256 == plain.raw_sha256
+    assert zipped.raw_version_id == plain.raw_version_id
+    assert zipped.encoded_size == len(compressed) and zipped.content_encoding == "gzip"
+    assert client.bytes_used == 3 * len(BODY) + len(compressed)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"bad gzip",
+        gzip.compress(BODY, mtime=0)[:-1],
+        gzip.compress(BODY, mtime=0) + b"tail",
+        gzip.compress(BODY, mtime=0) * 2,
+    ],
+)
+def test_invalid_truncated_or_multiple_gzip_members_are_rejected(payload: bytes) -> None:
+    result = response(body=payload, headers={"Content-Encoding": "gzip"})
+    with (
+        httpx.Client(transport=httpx.MockTransport(lambda _: result)) as http,
+        pytest.raises(AcquisitionError, match="^invalid_response$"),
+    ):
+        acquisition(http, Clock()).fetch(DOCUMENT_ID)
+    assert result.is_closed
+
+
+def test_compressed_expansion_stops_before_following_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(client_module, "MAX_RESPONSE_BYTES", 128)
+    compressed = gzip.compress(b"x" * 129, mtime=0)
+    assert len(compressed) < 128
+    stream = Stream([compressed, b"unread"])
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200,
+                    headers={"Content-Type": "text/html", "Content-Encoding": "gzip"},
+                    stream=stream,
+                )
+            )
+        ) as http,
+        pytest.raises(AcquisitionError, match="^size_limit$"),
+    ):
+        acquisition(http, Clock()).fetch(DOCUMENT_ID)
+    assert stream.closed and stream.consumed == 1
+
+
+def test_aggregate_size_limit_includes_previous_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(client_module, "MAX_TOTAL_BYTES", 4 * len(BODY) - 1)
+    with httpx.Client(transport=httpx.MockTransport(lambda _: response())) as http:
+        client = acquisition(http, Clock())
+        assert client.fetch(DOCUMENT_ID).body == BODY
+        with pytest.raises(AcquisitionError, match="^size_limit$"):
+            client.fetch(PILOT_DOCUMENTS[1].document_id)
+        with pytest.raises(AcquisitionError, match="^client_halted$"):
+            client.fetch(PILOT_DOCUMENTS[2].document_id)
+    assert client.requests_used == 2
+
+
+def test_same_url_cannot_reset_attempt_budget_by_fetching_again() -> None:
+    with httpx.Client(transport=httpx.MockTransport(lambda _: response())) as http:
+        client = acquisition(http, Clock())
+        client.fetch(DOCUMENT_ID)
+        client.fetch(DOCUMENT_ID)
+        with pytest.raises(AcquisitionError, match="^request_limit$"):
+            client.fetch(DOCUMENT_ID)
+    assert client.requests_used == 2
