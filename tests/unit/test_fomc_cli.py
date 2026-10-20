@@ -1,0 +1,79 @@
+import argparse
+import json
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+from market_intelligence.cli import main
+from market_intelligence.fomc import cli
+
+
+@pytest.mark.parametrize(
+    "args", [[], ["--pilot", "--status"], ["--reconcile-run", "bad"], ["--url", "https://invalid"]]
+)
+def test_invalid_options_fail_before_configuration(
+    args: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mock = MagicMock(side_effect=AssertionError("Configuration must not load"))
+    monkeypatch.setattr(cli, "DatabaseSettings", mock)
+    with pytest.raises(SystemExit):
+        main(["ingest-fomc", *args])
+    mock.assert_not_called()
+
+
+def test_demo_environment_rejected_before_database_or_http(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for key, value in dict(
+        POSTGRES_DB="market_intelligence",
+        POSTGRES_HOST="db",
+        POSTGRES_PORT="5432",
+        POSTGRES_INGEST_USER="ingest",
+        POSTGRES_INGEST_PASSWORD="synthetic-test-only",
+    ).items():
+        monkeypatch.setenv(key, value)
+    engine = MagicMock(side_effect=AssertionError("Database must not connect"))
+    http = MagicMock(side_effect=AssertionError("HTTP must not open"))
+    monkeypatch.setattr(cli, "create_db_engine", engine)
+    monkeypatch.setattr("market_intelligence.fomc.cli.httpx.Client", http)
+    assert main(["ingest-fomc", "--pilot"]) == 1
+    value = json.loads(capsys.readouterr().out)
+    assert value["code"] == "configuration_or_database_error"
+    engine.assert_not_called()
+    http.assert_not_called()
+
+
+def test_status_uses_reader_and_has_no_http_or_artifact_access(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for key, value in dict(
+        POSTGRES_DB="market_intelligence_m3",
+        POSTGRES_HOST="db",
+        POSTGRES_PORT="5432",
+        POSTGRES_READ_USER="m3_reader",
+        POSTGRES_READ_PASSWORD="synthetic-test-only",
+    ).items():
+        monkeypatch.setenv(key, value)
+    engine = MagicMock()
+    monkeypatch.setattr(cli, "create_db_engine", lambda settings, role: engine)
+    store = MagicMock()
+    store.status.return_value = []
+    monkeypatch.setattr(cli, "FomcStore", lambda _: store)
+    monkeypatch.setattr(
+        "market_intelligence.fomc.cli.httpx.Client",
+        MagicMock(side_effect=AssertionError("No HTTP")),
+    )
+    monkeypatch.setattr(cli, "ArtifactStore", MagicMock(side_effect=AssertionError("No artifacts")))
+    assert main(["ingest-fomc", "--status"]) == 0
+    assert json.loads(capsys.readouterr().out)["runs"] == []
+    store.reserve.assert_not_called()
+    engine.dispose.assert_called_once()
+
+
+def test_status_refuses_unused_artifact_override() -> None:
+    parser = argparse.ArgumentParser()
+    cli.add_arguments(parser)
+    args = parser.parse_args(["--status", "--artifact-root", "unused"])
+    assert args.artifact_root == Path("unused")
+    assert cli.execute(args) == 1

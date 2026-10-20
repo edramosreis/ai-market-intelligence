@@ -28,6 +28,7 @@ from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.hyperliquid_store import HyperliquidStore
 from market_intelligence.db.setup import grant_table_access, provision_roles
 from market_intelligence.db.treasury_store import TreasuryStore
+from market_intelligence.fomc import cli as fomc_cli
 from market_intelligence.hyperliquid.client import HyperliquidClient
 from market_intelligence.hyperliquid.models import (
     HISTORY_START,
@@ -431,7 +432,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
         )
         macro_cli.add_arguments(macro, provider)
+    fomc_cli.add_arguments(
+        subcommands.add_parser("ingest-fomc", help="Manual isolated FOMC originals")
+    )
     args = parser.parse_args(argv)
+    if args.command == "ingest-fomc":
+        return fomc_cli.execute(args)
     if args.command == "schedule":
         return scheduler_cli.execute(args)
     if args.command == "ingest-treasury" and args.refresh and args.resume:
