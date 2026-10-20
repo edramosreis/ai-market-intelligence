@@ -237,3 +237,19 @@ def test_status_is_reader_only_snapshot(
         assert all(s.startswith(("SET TRANSACTION READ ONLY", "SELECT")) for s in statements)
     finally:
         engine.dispose()
+
+
+def test_html_media_type_case_matches_acquisition_contract(
+    store: FomcStore, tmp_path: Path
+) -> None:
+    artifacts = ArtifactStore(tmp_path)
+    run = store.reserve(NOW)
+    body = calendar_body()
+    calendar = FetchedCalendar(
+        body, uuid4(), NOW, NOW, "Text/HTML; charset=UTF-8", "identity", len(body), None, None
+    )
+    artifacts.put(body)
+    store.record_calendar(
+        run, calendar, validate_calendar(body, calendar.content_type), artifacts, STATS
+    )
+    assert counts(store.engine) == (0, 1, 0)

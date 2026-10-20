@@ -22,6 +22,16 @@ from market_intelligence.time_utils import utc_now
 ARTIFACT_ROOT = Path("/app/data/fomc")
 
 
+def private_artifact_root(value: Path) -> Path:
+    root = value.absolute()
+    cwd = Path.cwd()
+    runtime = cwd == Path("/app") and root == ARTIFACT_ROOT
+    linked = (cwd / ".git").is_file() and not (cwd / ".git").is_symlink()
+    if not runtime and not (linked and root == cwd / "data/fomc"):
+        raise ValueError("Use the private M3 artifact directory")
+    return root
+
+
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     operation = parser.add_mutually_exclusive_group(required=True)
     operation.add_argument(
@@ -70,10 +80,9 @@ def execute(args: argparse.Namespace) -> int:
                 store.reconcile(args.reconcile_run, utc_now())
                 report(dict(event="fomc_run_reconciled", run_id=args.reconcile_run))
             else:
+                artifacts = ArtifactStore(private_artifact_root(args.artifact_root))
                 with httpx.Client(trust_env=False, follow_redirects=False) as http:
-                    result = ingest_pilot(
-                        store, FomcAcquisitionClient(http), ArtifactStore(args.artifact_root)
-                    )
+                    result = ingest_pilot(store, FomcAcquisitionClient(http), artifacts)
                 report(dict(event="fomc_ingestion_completed", **asdict(result)))
         finally:
             engine.dispose()
@@ -95,6 +104,6 @@ def execute(args: argparse.Namespace) -> int:
         return 130 if error.code == "interrupted" else 1
     except FomcStoreError as error:
         report(dict(event="fomc_command_failed", code=error.code))
-    except ValueError, SQLAlchemyError, OSError:
+    except ValueError, SQLAlchemyError, OSError, RuntimeError:
         report(dict(event="fomc_command_failed", code="configuration_or_database_error"))
     return 1

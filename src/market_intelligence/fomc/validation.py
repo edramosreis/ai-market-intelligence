@@ -59,6 +59,8 @@ class _Node:
     complete: bool = False
 
     def nodes(self) -> list[_Node]:
+        if self.tag in EXCLUDED:
+            return []
         return [
             self,
             *(
@@ -155,6 +157,8 @@ def _page(body: bytes, expected_url: str) -> tuple[_Node, _Node, list[_Node]]:
     except UnicodeError, RecursionError:
         raise FomcValidationError() from None
     nodes = page.root.nodes()
+    _one([node for node in nodes if node.tag == "html"])
+    _one([node for node in nodes if node.tag == "body"])
     head = _one([node for node in nodes if node.tag == "head"])
     article = _one([node for node in nodes if node.attrs.get("id") == "article"])
     url = _one(
@@ -199,7 +203,16 @@ class CalendarEvidence:
     minutes_dates: tuple[tuple[str, date], ...]
 
 
-def validate_calendar(body: bytes) -> CalendarEvidence:
+def validate_media_type(content_type: str) -> None:
+    if content_type.split(";", 1)[0].strip().lower() != "text/html":
+        raise FomcValidationError()
+    charsets = re.findall(r"charset\s*=\s*[\"']?([^\s;\"']+)", content_type, re.IGNORECASE)
+    if len(charsets) > 1 or (charsets and charsets[0].lower() not in {"utf-8", "utf8", "us-ascii"}):
+        raise FomcValidationError()
+
+
+def validate_calendar(body: bytes, content_type: str = "text/html") -> CalendarEvidence:
+    validate_media_type(content_type)
     _, article, _ = _page(body, CALENDAR_URL)
     rows = [
         node
@@ -257,9 +270,7 @@ def validate_document(fetched: FetchedDocument, calendar: CalendarEvidence) -> V
     spec = fetched.document
     if pilot_document(spec.document_id) != spec:
         raise FomcValidationError()
-    charset = re.search(r"charset\s*=\s*[\"']?([^\s;\"']+)", fetched.content_type, re.IGNORECASE)
-    if charset is not None and charset[1].lower() not in {"utf-8", "utf8", "us-ascii"}:
-        raise FomcValidationError()
+    validate_media_type(fetched.content_type)
     head, article, nodes = _page(fetched.body, spec.url)
     title = _label(_one([node for node in article.nodes() if node.tag == "h3"]))
     expected_title = (

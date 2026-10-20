@@ -64,7 +64,7 @@ def ingest_pilot(
     try:
         run_id = store.reserve(now())
         calendar = client.fetch_calendar()
-        evidence = validate_calendar(calendar.body)
+        evidence = validate_calendar(calendar.body, calendar.content_type)
         orphan_possible = True
         artifacts.put(calendar.body)
         store.record_calendar(run_id, calendar, evidence, artifacts, stats())
@@ -88,16 +88,7 @@ def ingest_pilot(
             client.wire_bytes,
             client.entity_bytes,
         )
-    except (
-        AcquisitionError,
-        FomcValidationError,
-        ArtifactError,
-        FomcStoreError,
-        SQLAlchemyError,
-        KeyboardInterrupt,
-        ValueError,
-        OSError,
-    ) as error:
+    except (Exception, KeyboardInterrupt) as error:
         if isinstance(error, AcquisitionError):
             code = error.code.value
         elif isinstance(error, FomcValidationError):

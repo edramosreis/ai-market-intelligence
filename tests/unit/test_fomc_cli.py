@@ -77,3 +77,18 @@ def test_status_refuses_unused_artifact_override() -> None:
     args = parser.parse_args(["--status", "--artifact-root", "unused"])
     assert args.artifact_root == Path("unused")
     assert cli.execute(args) == 1
+
+
+def test_host_artifacts_stay_in_linked_checkout_ignored_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    expected = tmp_path / "data/fomc"
+    with pytest.raises(ValueError):
+        cli.private_artifact_root(expected)
+    (tmp_path / ".git").write_text("gitdir: synthetic-linked-worktree")
+    assert cli.private_artifact_root(expected) == expected
+    with pytest.raises(ValueError):
+        cli.private_artifact_root(tmp_path.parent / "demo/data/fomc")
+    with pytest.raises(ValueError):
+        cli.private_artifact_root(tmp_path / "src/originals")

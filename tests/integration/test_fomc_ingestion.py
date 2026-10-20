@@ -52,6 +52,8 @@ def run(store: FomcStore, root: Path, fault: str | None = None) -> Any:
                 raise KeyboardInterrupt
             if fault == "reject":
                 return httpx.Response(429)
+            if fault == "unexpected":
+                raise RuntimeError("Untrusted failure detail must remain private")
         if url == CALENDAR_URL:
             body = calendar_body()
         else:
@@ -86,6 +88,7 @@ def test_complete_synthetic_pilot_releases_connections(store: FomcStore, tmp_pat
         ("reject", "source_rejected"),
         ("invalid", "invalid_fomc_document"),
         ("interrupt", "interrupted"),
+        ("unexpected", "internal_error"),
     ],
 )
 def test_later_failure_preserves_prior_documents_and_controlled_audit(

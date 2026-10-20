@@ -85,3 +85,25 @@ def test_script_does_not_supply_missing_identity() -> None:
     raw = document_body(spec).replace(b'<p class="article__time">', b"<script>")
     with pytest.raises(FomcValidationError):
         validate_document(fetched(spec, raw), validate_calendar(calendar_body()))
+
+
+@pytest.mark.parametrize("suffix", [b"</html>", b"</body></html>"])
+def test_truncated_full_page_rejected(suffix: bytes) -> None:
+    spec = PILOT_DOCUMENTS[0]
+    raw = document_body(spec)
+    assert raw.endswith(suffix)
+    with pytest.raises(FomcValidationError):
+        validate_document(fetched(spec, raw[: -len(suffix)]), validate_calendar(calendar_body()))
+
+
+@pytest.mark.parametrize(
+    "media",
+    [
+        "application/xhtml+xml",
+        "text/html; charset=utf-16",
+        "text/html; charset=utf-8; charset=us-ascii",
+    ],
+)
+def test_calendar_media_type_is_checked(media: str) -> None:
+    with pytest.raises(FomcValidationError):
+        validate_calendar(calendar_body(), media)

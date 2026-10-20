@@ -178,7 +178,7 @@ def define_tables(meta: sa.MetaData) -> dict[str, sa.Table]:
         sa.CheckConstraint(
             "http_status=200 AND requested_url=final_url AND length(requested_url)<=256 "
             "AND requested_url ~ '^https://www[.]federalreserve[.]gov/[a-zA-Z0-9/]+[.]htm$' "
-            "AND content_type LIKE 'text/html%' AND length(content_type)<=256 "
+            "AND lower(btrim(content_type)) LIKE 'text/html%' AND length(content_type)<=256 "
             "AND content_encoding IN ('identity','gzip') AND raw_sha256 ~ '^[0-9a-f]{64}$' "
             "AND wire_bytes BETWEEN 1 AND 2097152 AND entity_bytes BETWEEN 1 AND 2097152",
             name="response",
