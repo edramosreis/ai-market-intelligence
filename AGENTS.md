@@ -339,24 +339,33 @@ Commit file additions, edits, and removals promptly in small, coherent batches a
 
 Never commit credentials, keys, private datasets, dumps, or personal prompts. `.env.example` contains placeholders; actual configuration belongs in ignored `.env` or runtime environment. Supply only needed credentials: administrator for bootstrap/migrations, writer for ingestion, reader for API/agent. Only the API receives optional OpenAI configuration. Market endpoints and deterministic tests need no real OpenAI key. Do not persist conversations or log full prompts/answers, authorization headers, or SDK payloads. Exclude secrets from Docker context and Git. Update this guide and README when commands, layout, or dependencies change.
 
-## FOMC acquisition foundations
+## FOMC original ingestion
 
-`fomc/models.py` defines namespaced reproducible document IDs and distinct meeting/
-publication metadata; `fomc/catalog.py` fixes four September/November 2024 Board HTML
-statements/minutes. `fomc/client.py` returns raw in-memory candidates and separate
-receipt evidence using the existing locked HTTPX. It has no CLI, storage/schema or
-reader/agent integration. HTTP success does not verify HTML identity or publication.
+`fomc/` contains the reviewed four-original September/November 2024 Board pilot.
+`catalog.py` fixes identities/metadata; `client.py` shares bounded document/calendar reads;
+`validation.py` checks complete UTF-8 HTML identity boundaries and calendar publication
+evidence. Preserve the eight-attempt/two-per-URL/one-second/120-second/2-MiB-response/
+16-MiB-combined limits, bounded single-member gzip, clean public requests and controlled
+access/backpressure stops. Cache/page-update labels never replace publication evidence.
 
-Preserve the fixed-target boundary, fresh requests without inherited auth/headers/query/
-cookies, shared eight-attempt/two-per-URL limits, minimum one-second spacing, bounded
-inactivity timeouts and deadline checks, 2 MiB wire/entity and 16 MiB combined aggregate
-caps, bounded single-member gzip and response cleanup. Reject redirects/unsolicited 304;
-stop on source rejection/throttling/Retry-After and halt the instance on terminal errors.
-Cache hints remain separate from publication evidence; unchanged raw bytes preserve
-version identity while separate successful reads have separate receipt UUIDs.
+Revision `0006` adds five FOMC tables and no extension. `db/fomc_store.py` keeps immutable
+versions/receipts, initial provenance, current confirmations, stale-receipt protection
+and durable single-command reservations in short transactions. No connection spans HTTP,
+sleep or artifact work. Writer access is append-only for versions/receipts, SELECT-only
+for catalog, INSERT/UPDATE for runs/current and never DELETE; reader stays SELECT-only.
+Raw hashes cover decoded entity bytes, with stable document-v1/raw-html-v1 identity rules.
+Changed bytes establish a local representation, not a policy correction or vintage claim.
 
-From the M3 worktree, run `.venv\Scripts\python.exe -m pytest tests/unit/test_fomc_models.py tests/unit/test_fomc_acquisition.py`
-for synthetic focused checks. Full build/quality/PostgreSQL checks use `scripts/m3.py
---test build`, `--test quality`, `--test test`, then `--test down` as documented above.
-Do not use deterministic tests to fetch live documents or make paid calls. No additional
-installation step or dependency is introduced by this component.
+`fomc/artifacts.py` atomically publishes private hash-addressed originals without
+overwriting; verify existing bytes and reject symlinks/corruption. DB failure can leave
+an unreferenced artifact: report and inspect it, never automatically remove originals.
+`ingest-fomc --pilot`, `--status` and `--reconcile-run UUID` are manual controls; a running
+reservation must be inspected/stopped before reconciliation. Restrict database access to
+M3 or guarded deterministic db-test, and artifacts to the M3 volume/ignored linked data.
+
+Use `scripts/m3.py fomc-status`, `fomc-ingest`, or `fomc-reconcile --run-id UUID` only after
+the relevant runtime/live approval. Only ingest mounts the M3 artifact volume; agent and
+scheduler remain disabled. Deterministic checks use synthetic HTML/HTTP and temporary
+files with isolated PostgreSQL, never a live document batch or model call. The checkpoint
+passes 1224 tests, Ruff and strict mypy; README records commands and remaining acceptance.
+Passage extraction/chunking, retrieval, pgvector and document-agent tools remain later work.

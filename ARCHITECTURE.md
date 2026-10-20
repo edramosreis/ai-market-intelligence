@@ -1228,10 +1228,10 @@ Initialization/validation start nothing. Separate build/test/quality/cleanup act
 use only M3 resources. Runtime database initialization and API startup are individual
 opt-ins, not automatic setup. Scheduler/agent stay fixed off with no model keys;
 no development-volume deletion or arbitrary command passthrough is exposed. Existing
-migration head remains 0005. Acquisition, document versions, parsing/chunking, retrieval,
-vectors and research-model tools are later separately verified components.
+migration head on this feature is 0006. FOMC originals/provenance are described below;
+parsing/chunking, retrieval, vectors and research-model tools remain later components.
 
-## 18. Fixed FOMC acquisition foundations
+## 18. Fixed FOMC originals and acquisition provenance
 
 `fomc/models.py`, `catalog.py` and `client.py` separate logical identities, reviewed
 source metadata and raw HTTP receipt candidates. The fixed pilot is four official
@@ -1248,7 +1248,7 @@ tuple `["raw-html-v1", document_id, raw_sha256]`. Equal entity bytes after gzip/
 transport preserve the raw version; separate successful reads have separate receipt
 UUIDs. Changed bytes establish a locally different representation, not a policy correction.
 
-The synchronous HTTPX client permits only manifest document IDs and exact official URLs,
+The synchronous HTTPX client permits only manifest document IDs and one fixed calendar URL,
 without redirects, implicit discovery or inherited client auth/cookie/header/query data.
 It uses bounded requests/streaming, per-URL and command attempt budgets, sequential pacing,
 wire/entity/aggregate size caps and bounded gzip expansion. Deadline checks occur before
@@ -1258,9 +1258,49 @@ the same budgets. Source rejection/throttling and server Retry-After stop immedi
 HTTP validators are optional bounded hints, never publication evidence; no conditional
 request or 304 cache reuse is implemented. Errors do not expose upstream response bodies.
 
-Results remain in memory, with body text excluded from dataclass repr. HTML identity,
-encoding/layout, title and source-date verification have not been established merely by
-transport success. There is no persistence, migration, ingestion CLI, parsing/chunking,
-retrieval or model integration here. Existing migrations 0001–0005, structured readers,
-API, scheduler, agent tools and locked dependencies are unchanged. Tests use synthetic
-HTTPX streams and injected clocks, with no live provider/model requests or database use.
+HTML identity validation uses bounded stdlib HTMLParser, strict UTF-8, complete page/target
+boundaries, unique official URL/title/kind labels and fixed meeting/publication evidence.
+Script/style/SVG content cannot supply identity fields. Statement publication/release labels
+come from the statement; minutes publication requires the retained matching calendar row.
+The calendar is supporting acquisition evidence, not a fifth policy/search document.
+This validation is separate from later passage extraction and does not prove factuality.
+
+Migration `0006` adds `fomc_documents`, `fomc_ingestion_runs`, `fomc_fetch_receipts`,
+`fomc_raw_versions` and `fomc_current`. Catalog rows are seeded and writer-read-only;
+raw versions/receipts are append-only; runs/current permit INSERT/UPDATE; no writer DELETE.
+Composite foreign keys bind first/current provenance to the same document, version,
+content and receipt. A deferred first-receipt FK permits atomic original/version insertion.
+An unchanged replay adds a receipt/current confirmation while retaining first provenance;
+changed bytes add an immutable raw representation. Older or ambiguous equal-time changed
+receipts cannot replace current state. Identity-validation versions/labels belong to
+receipts, without manufacturing a new original when identical bytes are revalidated.
+
+Originals live outside Git/build context on the M3-only named artifact volume mounted
+only by ingest. Storage writes/fsyncs a bounded temporary file, atomically hard-links it
+without replacing an existing object, then verifies hash/size/type. Unsupported placement,
+symlinks and corrupted objects fail explicitly. SQL references commit only after placement;
+failure can leave an explicitly reported unreferenced object. No automatic cleanup occurs.
+
+A short transaction reserves one running FOMC command through an advisory transaction
+lock and unique partial index; it closes before HTTP. Each successful document commits
+version/receipt/current/counts together; earlier documents survive later failures. Failure
+audits use a separate short transaction. A crash retains a running reservation until an
+operator stops/inspects the process and explicitly reconciles its run. No database
+connection spans source reads, sleeps or file work. Status uses a reader-role read-only
+REPEATABLE READ snapshot. FOMC writes refuse the demo database; deterministic tests retain
+only the guarded db-test exception.
+
+The manual `ingest-fomc` CLI exposes a fixed `--pilot`, `--status` and explicit
+`--reconcile-run UUID`, with no crawl, scheduler or implicit resume. Guarded M3 launcher
+actions preserve independent image/database/roles/ports and disabled agent/scheduler.
+Read-budget audits retain wire/entity counts, including a rejecting chunk on size failure;
+no further read is admitted after a cap is crossed. This is a sequential bounded command,
+not a daily source-quota guard or preemptive deadline guarantee.
+
+All 1224 deterministic tests (818 unit / 406 integration), Ruff and strict mypy pass.
+Tests cover synthetic source validation/HTTP, private artifacts, real PostgreSQL grants,
+populated-0005 upgrade preservation, replay, rollback, pointer/receipt binding, concurrency,
+crash reservation, no-held-connection behavior and controlled partial failures. Earlier
+revisions/native data and the ten-tool agent contract remain unchanged; updated reader
+readiness expects 0006. Persistent deployment/live-original acceptance remains gated.
+There is no passage extraction/chunking, search endpoint, pgvector, embedding or new model tool.
