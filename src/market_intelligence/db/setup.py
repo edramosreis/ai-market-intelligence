@@ -25,6 +25,11 @@ TABLE_NAMES = (
     "macro_current",
     "scheduler_job_state",
     "scheduled_job_runs",
+    "fomc_documents",
+    "fomc_ingestion_runs",
+    "fomc_raw_versions",
+    "fomc_fetch_receipts",
+    "fomc_current",
 )
 
 
@@ -114,6 +119,8 @@ def grant_table_access(settings: DatabaseSettings) -> None:
                 "macro_ingestion_runs",
                 "macro_current",
                 "scheduled_job_runs",
+                "fomc_ingestion_runs",
+                "fomc_current",
             ):
                 conn.execute(
                     sql.SQL("GRANT INSERT, UPDATE ON TABLE public.{} TO {}").format(
@@ -125,7 +132,12 @@ def grant_table_access(settings: DatabaseSettings) -> None:
                     sql.Identifier(ingest_name)
                 )
             )
-            for table in ("macro_observed_versions", "macro_version_footnotes"):
+            for table in (
+                "macro_observed_versions",
+                "macro_version_footnotes",
+                "fomc_raw_versions",
+                "fomc_fetch_receipts",
+            ):
                 conn.execute(
                     sql.SQL("GRANT INSERT ON TABLE public.{} TO {}").format(
                         sql.Identifier(table), sql.Identifier(ingest_name)
