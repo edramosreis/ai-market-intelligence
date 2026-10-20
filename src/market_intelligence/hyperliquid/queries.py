@@ -36,8 +36,8 @@ from market_intelligence.hyperliquid.query_models import (
     cursor_after,
     cursor_for,
 )
-from market_intelligence.ingestion.models import utc_now
 from market_intelligence.queries.models import QueryValidationError
+from market_intelligence.time_utils import utc_now
 
 HOUR = timedelta(hours=1)
 

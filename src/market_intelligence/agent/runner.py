@@ -27,13 +27,13 @@ from market_intelligence.hyperliquid.query_models import (
     FundingSummary,
     OpenInterestLatest,
 )
-from market_intelligence.ingestion.models import as_utc, utc_now
 from market_intelligence.macro.query_models import (
     MacroLatest,
     MacroObservationPage,
     MacroVersionPage,
 )
 from market_intelligence.queries.models import Latest, Summary, UnknownMarketError
+from market_intelligence.time_utils import as_utc, utc_now
 from market_intelligence.treasury.query_models import TreasuryCurveResult, TreasurySpreadPage
 
 MESSAGES = {

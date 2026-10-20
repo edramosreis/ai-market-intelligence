@@ -294,11 +294,11 @@ Each month gets a committed `running` audit before its first HTTP request. The e
 
 Progress is newline-delimited JSON. `expected` counts requested five-minute buckets; `received` counts distinct validated observations after filtering. A fetched chunk's `missing_buckets` uses provider coverage; a skipped chunk uses stored coverage, as identified by `coverage_basis`. The final summary keeps those totals separate. Stored observations absent from a later provider response are retained. API coverage calculations will independently inspect stored rows at the query checkpoint.
 
-Transient connection failures, timeouts, HTTP 429, and selected 5xx responses get up to five attempts with backoff/jitter and valid `Retry-After` guidance. Connect/read timeouts are bounded; the default fetch/validation budget is 600 seconds per chunk. `--max-seconds` adds an optional command budget, checked between requests and chunks. A synchronous request or database operation already in progress must return before its deadline is checked. `--request-interval` accepts 0.1–60 seconds; the default remains conservative. One advisory lock prevents cooperating ingestion jobs from writing concurrently. Graceful interruption records failure where possible; after an abrupt termination, resume retries unfinished ranges.
+Transient connection failures, timeouts, HTTP 429, and selected 5xx responses get up to five attempts with backoff/jitter and valid `Retry-After` guidance. Connect/read timeouts are bounded; the default fetch/validation budget is 600 seconds per chunk. `--max-seconds` adds an optional command budget, checked between requests and chunks. A synchronous request or database operation already in progress must return before its deadline is checked. `--request-interval` accepts 0.1â€“60 seconds; the default remains conservative. One advisory lock prevents cooperating ingestion jobs from writing concurrently. Graceful interruption records failure where possible; after an abrupt termination, resume retries unfinished ranges.
 
-Live contract check on 2026-10-05: product metadata identified BTC as the base asset and USD as the quote asset. For **11:55–12:00 UTC**, the candle's volume **17.88862151** exactly matched the sum of **1,310** public trades' BTC `size` values. This validates base-volume interpretation for that sample; it does not establish uninterrupted historical coverage. Wire order, historical omissions, and request limits follow the [Coinbase candle reference](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles).
+Live contract check on 2026-10-05: product metadata identified BTC as the base asset and USD as the quote asset. For **11:55â€“12:00 UTC**, the candle's volume **17.88862151** exactly matched the sum of **1,310** public trades' BTC `size` values. This validates base-volume interpretation for that sample; it does not establish uninterrupted historical coverage. Wire order, historical omissions, and request limits follow the [Coinbase candle reference](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles).
 
-The implemented adapter also fetched and validated all **12 expected candles** for 00:00–01:00 UTC on both **2020-01-01** and **2024-01-01**, without authentication. The complete deterministic suite passed **113 tests** against PostgreSQL 18.6, including actual ingestion-role transactions. A live 2024-01-01 00:00–01:00 UTC ingestion inserted 12 candles; replaying it reported 12 unchanged, zero inserts, and zero updates.
+The implemented adapter also fetched and validated all **12 expected candles** for 00:00â€“01:00 UTC on both **2020-01-01** and **2024-01-01**, without authentication. The complete deterministic suite passed **113 tests** against PostgreSQL 18.6, including actual ingestion-role transactions. A live 2024-01-01 00:00â€“01:00 UTC ingestion inserted 12 candles; replaying it reported 12 unchanged, zero inserts, and zero updates.
 
 Historical verification on **2026-10-05**:
 
@@ -307,7 +307,7 @@ Historical verification on **2026-10-05**:
 - A normal 72-hour refresh through **15:00 UTC** received all 864 expected candles: **5 inserts, 859 unchanged, zero updates, zero gaps**.
 - After refresh, the stored **2020-01-01 00:00 to 2026-10-05 15:00 UTC** range contained **710,896 of 711,252 expected candles** (about **99.95% coverage**). The latest candle opens at **14:55 UTC**. All 85 audit runs succeeded; none remained failed or running.
 
-The 356 absent buckets remain real coverage gaps in stored history. A separate narrow raw request for **2020-01-30 17:00–18:40 UTC** also returned no observations inside that 20-bucket gap, confirming that sample was not lost at an ingestion page boundary. The reason for source omissions cannot be determined from OHLCV alone. These measurements describe this local snapshot; future provider corrections or explicit repairs can change it. Dataset and verification logs stay outside Git.
+The 356 absent buckets remain real coverage gaps in stored history. A separate narrow raw request for **2020-01-30 17:00â€“18:40 UTC** also returned no observations inside that 20-bucket gap, confirming that sample was not lost at an ingestion page boundary. The reason for source omissions cannot be determined from OHLCV alone. These measurements describe this local snapshot; future provider corrections or explicit repairs can change it. Dataset and verification logs stay outside Git.
 
 ## Query stored history through HTTP
 
@@ -333,7 +333,7 @@ Invoke-RestMethod 'http://127.0.0.1:8000/v1/markets/1/summary?start=2024-01-01&e
 Invoke-RestMethod 'http://127.0.0.1:8000/v1/markets/1/candles?start=2024-01-01&end=2024-01-02&interval_seconds=3600&limit=24'
 ```
 
-Dates mean midnight UTC; timestamps require an offset. Windows are half-open and align to five minutes. Derived output intervals are **900, 3600, or 86400 seconds**; their windows must align to that interval's UTC epoch grid (UTC midnight for daily bars). Rows are ascending; the page limit is 1–500 (default 200). Send `next_cursor` as `cursor` with the same market, start/end, and interval for another page; URL-encode it with your HTTP client's parameter builder. `next_cursor: null` ends pagination. Absent derived groups remain gaps; partial groups include constituent counts and `null` full-bar OHLCV.
+Dates mean midnight UTC; timestamps require an offset. Windows are half-open and align to five minutes. Derived output intervals are **900, 3600, or 86400 seconds**; their windows must align to that interval's UTC epoch grid (UTC midnight for daily bars). Rows are ascending; the page limit is 1â€“500 (default 200). Send `next_cursor` as `cursor` with the same market, start/end, and interval for another page; URL-encode it with your HTTP client's parameter builder. `next_cursor: null` ends pagination. Absent derived groups remain gaps; partial groups include constituent counts and `null` full-bar OHLCV.
 
 Each page reports coverage of the **entire requested canonical window**, independently of page length. Every response reads one repeatable, read-only snapshot; separate pages use separate snapshots, so restart pagination if ingestion corrections occur between pages. Cursors are validated continuation positions, not authorization tokens.
 
@@ -353,7 +353,7 @@ Opt-in check against an already backfilled local database:
 
 This checks HTTP health, both 2020-01-01 and 2024-01-01 summaries, their 24 derived hourly bars, and latest freshness. It performs no database writes or external provider calls. It needs the documented backfill and a running API; it is separate from deterministic tests.
 
-Query/API verification on **2026-10-05**: the full isolated PostgreSQL suite passed **165 tests** (81 unit and 84 integration). HTTP summaries for both sampled days matched independent reader-role SQL for opening/closing prices, return, high/low, and volume. The known **2020-01-30 17:00–18:40 UTC** gap returned `no_data`, 20 missing buckets, and unavailable metrics. The full stored range through **2026-10-05 15:00 UTC** returned `incomplete`, **710,896 actual buckets and 356 missing**, matching SQL; its summary request plus independent SQL check took about 0.85 seconds in this local sample. A multi-year daily request returned 500 rows and a continuation cursor. Latest correctly reported stale data after the last manual refresh. These are local observations, not throughput guarantees; the API checks did not alter the stored dataset.
+Query/API verification on **2026-10-05**: the full isolated PostgreSQL suite passed **165 tests** (81 unit and 84 integration). HTTP summaries for both sampled days matched independent reader-role SQL for opening/closing prices, return, high/low, and volume. The known **2020-01-30 17:00â€“18:40 UTC** gap returned `no_data`, 20 missing buckets, and unavailable metrics. The full stored range through **2026-10-05 15:00 UTC** returned `incomplete`, **710,896 actual buckets and 356 missing**, matching SQL; its summary request plus independent SQL check took about 0.85 seconds in this local sample. A multi-year daily request returned 500 rows and a continuation cursor. Latest correctly reported stale data after the last manual refresh. These are local observations, not throughput guarantees; the API checks did not alter the stored dataset.
 
 ## Ask questions through the agent
 
@@ -365,7 +365,7 @@ The model selects from ten application-owned tools, backed by the same reader-ro
 | --- | --- |
 | `get_latest_btc_candle` | No arguments; latest stored completed Coinbase spot BTC/USD candle, age and staleness |
 | `get_btc_window_summary` | Inclusive `start`, exclusive `end`; UTC dates or aligned timestamps, exact metrics and candle coverage |
-| `get_treasury_curve` | `observed_on` as YYYY-MM-DD; fourteen nominal tenors, missing reasons, provenance and same-date 10Y–2Y spread |
+| `get_treasury_curve` | `observed_on` as YYYY-MM-DD; fourteen nominal tenors, missing reasons, provenance and same-date 10Yâ€“2Y spread |
 | `get_treasury_spread_history` | Date-only `start`/`end` and required nullable `cursor`; up to twenty stored source dates per page, 2Y/10Y yields, spreads and provenance |
 | `get_latest_btc_funding` | No arguments; latest stored settled Hyperliquid BTC perpetual funding event, exact source milliseconds, derived UTC settlement hour and staleness |
 | `get_btc_funding_summary` | Inclusive `start`, exclusive `end`; complete UTC-hour windows from 2024, arithmetic rate sum/percent/mean and gap coverage |
@@ -374,7 +374,7 @@ The model selects from ten application-owned tools, backed by the same reader-ro
 | `get_macro_observation_history` | Fixed `series_id`, monthly `start`/`end`, nullable `cursor`; twenty current observations per page, whole-window monthly coverage, footnotes and receipts |
 | `get_macro_observed_versions` | Fixed `series_id`, exact `month`, nullable `cursor`; twenty locally observed immutable versions per page, current version number and content-origin receipts |
 
-Macro series are BLS `CUSR0000SA0` CPI index (1982–84=100), BLS `LNS14000000`
+Macro series are BLS `CUSR0000SA0` CPI index (1982â€“84=100), BLS `LNS14000000`
 unemployment percent, and FRB `RIFSPFF_N.M` monthly effective federal funds percent per
 annum. BLS series are seasonally adjusted; the Fed series is not. Monthly labels use
 completed `YYYY-MM-01` periods and half-open windows. CPI levels are not inflation rates.
@@ -480,12 +480,12 @@ Treasury live acceptance on **2026-10-07** used `gpt-6-luna`, the actual agent H
 
 | Case | Observed result |
 | --- | --- |
-| 2024-01-02 curve | All fourteen tenor labels; thirteen available yields; 2Y 4.33%, 10Y 3.95%, and spread −0.38 percentage points / −38 basis points |
+| 2024-01-02 curve | All fourteen tenor labels; thirteen available yields; 2Y 4.33%, 10Y 3.95%, and spread âˆ’0.38 percentage points / âˆ’38 basis points |
 | January 1990 history | Twenty-one source dates across two pages; every reported date/spread matched the evidence |
 | 2010-10-11 date-only entry | Fourteen `field_absent` yields, zero available rates, and `missing_rates` |
 | Absent 1990-01-01 date | `no_data`, without inventing a holiday or another date |
 | Separate BTC/Treasury observations | January 1, 2024 BTC high/low/volume and January 2 Treasury benchmarks matched their separate source/window evidence |
-| January–April 1990 history | Three pages retained sixty of eighty-two stored dates; `partial_results` preserved the continuation cursor |
+| Januaryâ€“April 1990 history | Three pages retained sixty of eighty-two stored dates; `partial_results` preserved the continuation cursor |
 
 Early attempts exposed altered cursor strings and a prose claim of page overlap inferred from repeated whole-window coverage. The strict cursor choices and explicit page-versus-window instructions were added, then complete and bounded pagination were rechecked successfully. Database fact/audit counts remained unchanged, reader connections were released before model calls, and the persistent API stayed disabled. These are inspected examples, not a guarantee of factual prose for arbitrary questions.
 
@@ -505,8 +505,8 @@ Live verification on **2026-10-06** used the actual agent HTTP handler, official
 | Latest 24 hours before refresh | `limited` / `incomplete`; 32/288 candles and unavailable full-window metrics |
 | 2024-01-01 UTC | Complete 288/288 coverage; high USD 44,240.80, low USD 42,175.65, volume 7,977.72851143 BTC |
 | 2020-01-01 UTC | Complete 288/288 coverage; open USD 7,165.72, close USD 7,174.33, return +0.12015541% |
-| 2020-01-30 17:00–18:40 UTC | `limited` / `no_data`; 0/20 candles, 20 missing buckets, and unavailable metrics |
-| Latest after manual refresh | Close USD 86,241.41 for 2026-10-06 12:15–12:20 UTC; age about 329 seconds, below the 900-second stale threshold |
+| 2020-01-30 17:00â€“18:40 UTC | `limited` / `no_data`; 0/20 candles, 20 missing buckets, and unavailable metrics |
+| Latest after manual refresh | Close USD 86,241.41 for 2026-10-06 12:15â€“12:20 UTC; age about 329 seconds, below the 900-second stale threshold |
 | Latest 24 hours after refresh | 2026-10-05 12:20 through 2026-10-06 12:20 UTC, complete 288/288 coverage; +0.16626352% return, correctly rounded to +0.1663% in the answer |
 
 The manual 72-hour refresh received 864/864 candles, inserted 256, and retained 608 unchanged rows. Agent reads preserved candle/audit counts: 710,896/85 before refresh and 711,152/86 afterward. A separate provider HTTP 429 check returned controlled HTTP 503 / `model_unavailable`, with zero tool calls or data changes. The live batch used a private cumulative spend guard with standard processing and retries disabled; its conservative token-based cost estimate was below US$0.005. This is an upper estimate, not a reconciled billing invoice. The persistent local agent remains disabled.
@@ -548,7 +548,7 @@ Use [Swagger UI](http://127.0.0.1:8000/docs) after the normal migration/API star
 | Route | Inputs and result |
 | --- | --- |
 | `GET /v1/treasury/curve` | `observed_on=2024-01-02`; native-date rates, missing reasons, provenance, and same-date 10Y-minus-2Y spread |
-| `GET /v1/treasury/curves` | Half-open `start`/`end` dates, `limit` (1–100, default 20), optional opaque `cursor`; observed curves plus whole-window stored-date evidence |
+| `GET /v1/treasury/curves` | Half-open `start`/`end` dates, `limit` (1â€“100, default 20), optional opaque `cursor`; observed curves plus whole-window stored-date evidence |
 
 Try [a January 2024 curve](http://127.0.0.1:8000/v1/treasury/curve?observed_on=2024-01-02) or [a seven-curve page](http://127.0.0.1:8000/v1/treasury/curves?start=2024-01-01&end=2024-02-01&limit=7). Copy `next_cursor` into the same request's `cursor` parameter until it becomes null. A cursor is bound to the source/dataset/date window; separate pages are separate snapshots. Use YYYY-MM-DD dates without timestamps. Windows are bounded by `API_MAX_WINDOW_DAYS` and today's source date.
 
@@ -602,8 +602,8 @@ docker compose run --rm ingest ingest-fed --refresh
 ```
 
 Each command accepts configurable `--start`/`--end`, `--window-seconds` (default 180),
-`--max-seconds` (default 900), `--request-interval` (default 3; range 3–60) and
-`--max-requests` (default 12 BLS / 3 Fed; range 1–25). The request limit counts retries
+`--max-seconds` (default 900), `--request-interval` (default 3; range 3â€“60) and
+`--max-requests` (default 12 BLS / 3 Fed; range 1â€“25). The request limit counts retries
 and all fetches through that command's client. It does not track other processes,
 earlier commands or the provider's daily quota. Exhaustion reports `retry_exhausted`
 with request usage and a separate `request_budget_exhausted` flag. Refresh cannot be
@@ -626,7 +626,7 @@ counts and identifiers, not downloaded datasets, SQL, credentials or model paylo
 No scheduler or model call is involved. Equivalent host jobs use
 `.venv\Scripts\python.exe -m market_intelligence ingest-bls` or `ingest-fed`.
 
-### Local ingestion acceptance — 2026-10-09–10
+### Local ingestion acceptance â€” 2026-10-09â€“10
 
 Explicit migration `0004` and reader-role readiness passed. Real 2024 loads stored 24 BLS
 observations and 12 Fed rates. Replays recorded separate audits with zero new versions;
@@ -639,7 +639,7 @@ matched reader SQL for native period labels, Decimal values, missing reasons and
 | Unemployment | 945 represented months: 1948-01 through 2026-09; 944 available | All requested native month keys present |
 | Fed funds | 867 available months: 1954-07 through 2026-09 | All requested native month keys present |
 
-BLS initially rejected the 2007–2016 window after six older windows committed. One bounded
+BLS initially rejected the 2007â€“2016 window after six older windows committed. One bounded
 diagnostic confirmed daily-quota exhaustion; further BLS calls stopped. The unregistered
 API permits [25 queries per day](https://www.bls.gov/developers/api_faqs.htm), while the
 job's attempt cap covers only that invocation. No reset time was established. The failure
@@ -723,7 +723,7 @@ native window; the development Docker target includes the script.
 
 Local verification on **2026-10-09** passed all 36 stored 2024 observations through three
 pages per series, with exact native content/footnote/version parity. The shared
-1954-07–2026-10 window matched 642 stored months and 225 uncollected months per BLS
+1954-07â€“2026-10 window matched 642 stored months and 225 uncollected months per BLS
 series, and all 867 Fed months. Latest and local-version evidence also matched reader
 SQL. All 13 existing and macro fact/catalog/audit table fingerprints stayed unchanged;
 the API is healthy and the agent remains disabled. All **906 deterministic tests**
@@ -854,7 +854,7 @@ To reproduce the two historical live adapter samples after installing the host d
 .venv\Scripts\python.exe scripts/check_coinbase_live.py
 ```
 
-This opt-in check calls Coinbase for 00:00–01:00 UTC on 2020-01-01 and 2024-01-01 through the real adapter. It verifies product identity, parses/validates candles, and prints expected/validated/missing counts. Each window has 12 expected candles. Samples remain in memory; the script never loads database credentials or writes to PostgreSQL. It returns nonzero on a provider/validation failure or missing sampled buckets. It is separate from pytest and does not certify coverage outside those two hours.
+This opt-in check calls Coinbase for 00:00â€“01:00 UTC on 2020-01-01 and 2024-01-01 through the real adapter. It verifies product identity, parses/validates candles, and prints expected/validated/missing counts. Each window has 12 expected candles. Samples remain in memory; the script never loads database credentials or writes to PostgreSQL. It returns nonzero on a provider/validation failure or missing sampled buckets. It is separate from pytest and does not certify coverage outside those two hours.
 
 ## Host development and quality checks
 
@@ -1067,7 +1067,7 @@ preserving the development volume.
 ## FOMC acquisition foundations
 
 `fomc/catalog.py` defines a fixed pilot of Board-hosted HTML statements and minutes
-for the September 17–18 and November 6–7, 2024 meetings. Minutes publication dates are
+for the September 17â€“18 and November 6â€“7, 2024 meetings. Minutes publication dates are
 October 9 and November 26; meeting dates and local receipt times remain distinct.
 The [official calendar](https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm)
 provides those links/dates. [Board reuse terms](https://www.federalreserve.gov/disclaimer.htm)
@@ -1099,3 +1099,11 @@ Run synthetic checks from the M3 worktree (no provider/model/database access):
 
 Use the guarded M3 build/quality/test commands above for the full isolated suite.
 These foundations expose no document ingestion, parsing, retrieval or agent endpoint.
+
+## Source package organization
+
+`coinbase/` contains the fixed Coinbase spot-candle models, HTTP client (`client.py`)
+and ingestion orchestration. `time_utils.py` supplies shared UTC conversion, current
+UTC time and explicit timestamp parsing to native readers, providers, API, agent and
+scheduler code. Five-minute candle alignment and settling rules remain Coinbase-specific.
+The `ingest` command and all HTTP routes, source contracts and database objects are unchanged.

@@ -12,6 +12,16 @@ from alembic.util import CommandError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from market_intelligence.coinbase.client import BASE_URL, CoinbaseClient
+from market_intelligence.coinbase.models import (
+    DEFAULT_START,
+    ChunkReport,
+    ErrorCode,
+    IngestionError,
+    TimeWindow,
+    closed_cutoff,
+)
+from market_intelligence.coinbase.service import ingest
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.candle_store import CandleStore
 from market_intelligence.db.connection import create_db_engine
@@ -27,23 +37,12 @@ from market_intelligence.hyperliquid.models import (
     funding_windows,
 )
 from market_intelligence.hyperliquid.service import collect_open_interest, ingest_funding
-from market_intelligence.ingestion.coinbase import BASE_URL, CoinbaseClient
-from market_intelligence.ingestion.models import (
-    DEFAULT_START,
-    ChunkReport,
-    ErrorCode,
-    IngestionError,
-    TimeWindow,
-    closed_cutoff,
-    parse_instant,
-    utc_now,
-)
-from market_intelligence.ingestion.service import ingest
 from market_intelligence.macro import cli as macro_cli
 from market_intelligence.macro.jobs import MacroIngestionError
 from market_intelligence.macro.models import MacroProvider
 from market_intelligence.macro.storage_models import MacroFailureCode
 from market_intelligence.scheduler import cli as scheduler_cli
+from market_intelligence.time_utils import parse_instant, utc_now
 from market_intelligence.treasury.client import TreasuryClient
 from market_intelligence.treasury.models import (
     DATASET_CODE,

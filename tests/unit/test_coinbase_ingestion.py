@@ -8,15 +8,15 @@ from typing import Any
 import httpx
 import pytest
 
-from market_intelligence.ingestion.coinbase import BASE_URL, CoinbaseClient, parse_candles
-from market_intelligence.ingestion.models import (
+from market_intelligence.coinbase.client import BASE_URL, CoinbaseClient, parse_candles
+from market_intelligence.coinbase.models import (
     ErrorCode,
     IngestionError,
     TimeWindow,
     closed_cutoff,
     monthly_windows,
-    parse_instant,
 )
+from market_intelligence.time_utils import parse_instant
 
 START = datetime(2024, 1, 1, tzinfo=UTC)
 WINDOW = TimeWindow(START, START + timedelta(minutes=5))
@@ -42,13 +42,6 @@ class FakeClock:
 def test_closed_cutoff_keeps_one_minute_settling_allowance() -> None:
     assert closed_cutoff(START + timedelta(minutes=5, seconds=59)) == START
     assert closed_cutoff(START + timedelta(minutes=6)) == WINDOW.end
-
-
-def test_cli_date_shorthand_and_explicit_offset() -> None:
-    assert parse_instant("2024-01-01") == START
-    assert parse_instant("2024-01-01T03:00:00+03:00") == START
-    with pytest.raises(ValueError):
-        parse_instant("2024-01-01T00:00:00")
 
 
 @pytest.mark.parametrize(

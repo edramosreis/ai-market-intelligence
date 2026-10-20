@@ -6,6 +6,8 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
 
+from market_intelligence.time_utils import as_utc
+
 INTERVAL_SECONDS = 300
 INTERVAL = timedelta(seconds=INTERVAL_SECONDS)
 DEFAULT_START = datetime(2020, 1, 1, tzinfo=UTC)
@@ -33,16 +35,6 @@ class IngestionError(Exception):
         self.audit_recorded = False
 
 
-def utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
-def as_utc(instant: datetime) -> datetime:
-    if instant.tzinfo is None or instant.utcoffset() is None:
-        raise ValueError("Timestamps must include a UTC offset")
-    return instant.astimezone(UTC)
-
-
 def aligned(instant: datetime) -> bool:
     instant = as_utc(instant)
     return instant.minute % 5 == 0 and instant.second == 0 and instant.microsecond == 0
@@ -51,13 +43,6 @@ def aligned(instant: datetime) -> bool:
 def closed_cutoff(now: datetime) -> datetime:
     settled = as_utc(now) - timedelta(seconds=60)
     return settled.replace(minute=settled.minute - settled.minute % 5, second=0, microsecond=0)
-
-
-def parse_instant(value: str) -> datetime:
-    # CLI date-only shorthand is explicitly UTC; full timestamps require an offset.
-    if len(value) == 10:
-        value += "T00:00:00+00:00"
-    return as_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
 
 
 @dataclass(frozen=True)

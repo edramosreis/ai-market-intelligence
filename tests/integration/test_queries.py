@@ -12,12 +12,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
 from market_intelligence.api import create_app
+from market_intelligence.coinbase.models import INTERVAL
 from market_intelligence.config import ApiSettings, DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.tables import candles, ingestion_runs
-from market_intelligence.ingestion.models import INTERVAL, parse_instant
 from market_intelligence.queries.models import QueryValidationError, UnknownMarketError
 from market_intelligence.queries.service import MarketQueries
+from market_intelligence.time_utils import parse_instant
 
 pytestmark = pytest.mark.integration
 START = parse_instant("2024-01-01")

@@ -12,14 +12,14 @@ from typing import Any
 
 import httpx
 
-from market_intelligence.ingestion.models import (
+from market_intelligence.coinbase.models import (
     INTERVAL,
     Candle,
     ErrorCode,
     IngestionError,
     TimeWindow,
-    utc_now,
 )
+from market_intelligence.time_utils import utc_now
 
 BASE_URL = "https://api.exchange.coinbase.com"
 PRODUCT_ID = "BTC-USD"

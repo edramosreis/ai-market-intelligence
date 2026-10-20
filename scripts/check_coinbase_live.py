@@ -6,14 +6,9 @@ from datetime import timedelta
 
 import httpx
 
-from market_intelligence.ingestion.coinbase import BASE_URL, CoinbaseClient
-from market_intelligence.ingestion.models import (
-    IngestionError,
-    TimeWindow,
-    closed_cutoff,
-    parse_instant,
-    utc_now,
-)
+from market_intelligence.coinbase.client import BASE_URL, CoinbaseClient
+from market_intelligence.coinbase.models import IngestionError, TimeWindow, closed_cutoff
+from market_intelligence.time_utils import parse_instant, utc_now
 
 
 def main() -> int:

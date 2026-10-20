@@ -10,8 +10,7 @@ from sqlalchemy import Engine
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
-from market_intelligence.db.tables import candles, ingestion_runs, markets
-from market_intelligence.ingestion.models import (
+from market_intelligence.coinbase.models import (
     INTERVAL_SECONDS,
     Candle,
     ChunkReport,
@@ -19,6 +18,7 @@ from market_intelligence.ingestion.models import (
     IngestionError,
     TimeWindow,
 )
+from market_intelligence.db.tables import candles, ingestion_runs, markets
 
 INGESTION_LOCK_KEY = 3002020
 VALUE_FIELDS = ("open", "high", "low", "close", "base_volume")

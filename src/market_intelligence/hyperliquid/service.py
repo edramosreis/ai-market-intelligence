@@ -20,7 +20,7 @@ from market_intelligence.hyperliquid.models import (
     funding_windows,
     utc,
 )
-from market_intelligence.ingestion.models import utc_now
+from market_intelligence.time_utils import utc_now
 
 
 def _budget(seconds: float) -> None:
