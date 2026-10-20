@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 import httpx
 
 from market_intelligence.fomc.catalog import pilot_document
-from market_intelligence.fomc.models import DocumentSpec, identity
+from market_intelligence.fomc.models import CALENDAR_URL, DocumentSpec, identity
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_BYTES = 16 * 1024 * 1024
@@ -76,6 +76,29 @@ class FetchedDocument:
         return identity("raw-html-v1", self.document.document_id, self.raw_sha256)
 
 
+@dataclass(frozen=True)
+class FetchedCalendar:
+    body: bytes = field(repr=False)
+    receipt_id: UUID
+    fetch_started_at: datetime
+    received_at: datetime
+    content_type: str
+    content_encoding: str
+    encoded_size: int
+    etag: str | None
+    last_modified: str | None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "fetch_started_at", _utc(self.fetch_started_at))
+        object.__setattr__(self, "received_at", _utc(self.received_at))
+        if self.received_at < self.fetch_started_at:
+            raise AcquisitionError(AcquisitionErrorCode.INVALID_RESPONSE)
+
+    @property
+    def raw_sha256(self) -> str:
+        return hashlib.sha256(self.body).hexdigest()
+
+
 def _header(value: str | None, limit: int = 1024) -> str | None:
     # Keep cache hints only when bounded and printable; never interpret them as publication.
     if value is None or not 1 <= len(value) <= limit or any(not 32 <= ord(c) < 127 for c in value):
@@ -110,6 +133,8 @@ class FomcAcquisitionClient:
         self.request_interval = request_interval
         self.requests_used = 0
         self.bytes_used = 0
+        self.wire_bytes = 0
+        self.entity_bytes = 0
         self._attempts: dict[str, int] = {}
         self._last_request: float | None = None
         self._halted = False
@@ -136,8 +161,12 @@ class FomcAcquisitionClient:
         self.requests_used += 1
         self._attempts[url] = self._attempts.get(url, 0) + 1
 
-    def _count_bytes(self, count: int) -> None:
+    def _count_bytes(self, count: int, *, wire: bool) -> None:
         self.bytes_used += count
+        if wire:
+            self.wire_bytes += count
+        else:
+            self.entity_bytes += count
         if self.bytes_used > MAX_TOTAL_BYTES:
             raise AcquisitionError(AcquisitionErrorCode.SIZE_LIMIT)
 
@@ -156,7 +185,7 @@ class FomcAcquisitionClient:
         for chunk in response.iter_raw():
             self._check_deadline()
             encoded_size += len(chunk)
-            self._count_bytes(len(chunk))
+            self._count_bytes(len(chunk), wire=True)
             if encoded_size > MAX_RESPONSE_BYTES:
                 raise AcquisitionError(AcquisitionErrorCode.SIZE_LIMIT)
             try:
@@ -169,7 +198,7 @@ class FomcAcquisitionClient:
             except zlib.error:
                 raise AcquisitionError(AcquisitionErrorCode.INVALID_RESPONSE) from None
             self._check_deadline()
-            self._count_bytes(len(decoded))
+            self._count_bytes(len(decoded), wire=False)
             if len(body) + len(decoded) > MAX_RESPONSE_BYTES:
                 raise AcquisitionError(AcquisitionErrorCode.SIZE_LIMIT)
             if decoder is not None and decoder.unused_data:
@@ -189,20 +218,34 @@ class FomcAcquisitionClient:
         if self._halted:
             raise AcquisitionError(AcquisitionErrorCode.CLIENT_HALTED)
         try:
-            return self._fetch(document)
+            result = self._fetch(document)
+            assert isinstance(result, FetchedDocument)
+            return result
         except AcquisitionError:
             self._halted = True
             raise
 
-    def _fetch(self, document: DocumentSpec) -> FetchedDocument:
+    def fetch_calendar(self) -> FetchedCalendar:
+        if self._halted:
+            raise AcquisitionError(AcquisitionErrorCode.CLIENT_HALTED)
+        try:
+            result = self._fetch(None)
+            assert isinstance(result, FetchedCalendar)
+            return result
+        except AcquisitionError:
+            self._halted = True
+            raise
+
+    def _fetch(self, document: DocumentSpec | None) -> FetchedDocument | FetchedCalendar:
+        url = document.url if document is not None else CALENDAR_URL
         for _ in range(MAX_ATTEMPTS_PER_URL):
-            self._before_request(document.url)
+            self._before_request(url)
             started = _utc(self.now())
             remaining = self.deadline - self.monotonic()
             # A fresh Request bypasses inherited client auth, cookies, headers and query params.
             request = httpx.Request(
                 "GET",
-                document.url,
+                url,
                 headers={
                     "Accept": "text/html",
                     "Accept-Encoding": "gzip, identity",
@@ -235,8 +278,7 @@ class FomcAcquisitionClient:
                     ):
                         raise AcquisitionError(AcquisitionErrorCode.INVALID_RESPONSE)
                     body, encoded_size, encoding = self._read(response)
-                    return FetchedDocument(
-                        document,
+                    fields = (
                         body,
                         self.receipt_id(),
                         started,
@@ -246,6 +288,11 @@ class FomcAcquisitionClient:
                         encoded_size,
                         _header(response.headers.get("etag")),
                         _header(response.headers.get("last-modified")),
+                    )
+                    return (
+                        FetchedDocument(document, *fields)
+                        if document is not None
+                        else FetchedCalendar(*fields)
                     )
                 finally:
                     response.close()
