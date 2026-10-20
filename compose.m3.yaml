@@ -78,6 +78,8 @@ services:
       POSTGRES_READ_PASSWORD: ${M3_READ_PASSWORD:?Run scripts/m3.py init}
 
   ingest:
+    volumes:
+      - fomc_artifacts:/app/data/fomc
     profiles: [tools]
     image: ai-market-intelligence:m3
     command: [ingest]
@@ -114,3 +116,5 @@ services:
 volumes:
   postgres_data:
     name: ai-market-intelligence-m3_postgres_data
+  fomc_artifacts:
+    name: ai-market-intelligence-m3_fomc_artifacts
