@@ -1,0 +1,87 @@
+from dataclasses import replace
+
+import pytest
+
+from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
+from market_intelligence.fomc.models import DocumentSpec
+from market_intelligence.fomc.validation import (
+    FomcValidationError,
+    validate_calendar,
+    validate_document,
+)
+from tests.fomc_fakes import calendar_body, document_body, fetched
+
+
+@pytest.mark.parametrize("spec", PILOT_DOCUMENTS)
+def test_identity_and_separate_publication_evidence(spec: DocumentSpec) -> None:
+    result = validate_document(fetched(spec), validate_calendar(calendar_body()))
+    assert result.fetched.document == spec
+    assert result.page_update_text == "Last Update: October 09, 2024"
+    assert result.validator_version == "fomc-identity-v1"
+    assert result.release_time_text == spec.release_time_text
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        (b"Federal Reserve issues FOMC statement", b"Access denied"),
+        (b"September 18, 2024", b"September 19, 2024"),
+        (b"For release at 2:00 p.m. EDT", b"For release at 3:00 p.m. EDT"),
+        (b"monetary20240918a.htm", b"monetary20241107a.htm"),
+        (b"</head>", b'<meta property="og:url" content="duplicate"></head>'),
+        (b'</div><div id="lastUpdate">', b'<div id="lastUpdate">'),
+        (b'charset="utf-8"', b'charset="utf-16"'),
+        (b"<!doctype html>", b'<!DOCTYPE html SYSTEM "https://invalid/schema">'),
+    ],
+)
+def test_reject_mismatched_or_ambiguous_identity(old: bytes, new: bytes) -> None:
+    spec = PILOT_DOCUMENTS[0]
+    with pytest.raises(FomcValidationError, match="^invalid_fomc_document$"):
+        validate_document(
+            fetched(spec, document_body(spec).replace(old, new)), validate_calendar(calendar_body())
+        )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [b"", b"\xff", b"<html><head>", b"<div>" * 129, b"<br>" * 25001],
+    ids=["empty", "utf8", "truncated", "depth", "nodes"],
+)
+def test_bounded_invalid_html(body: bytes) -> None:
+    with pytest.raises(FomcValidationError):
+        validate_calendar(body)
+
+
+def test_calendar_dates_and_cross_links_are_required() -> None:
+    raw = calendar_body()
+    for old, new in [
+        (b"October 09", b"October 10"),
+        (b"September 17-18", b"September 16-18"),
+        (b"monetary20240918a.htm", b"wrong.htm"),
+        (b"</body>", raw + b"</body>"),
+    ]:
+        with pytest.raises(FomcValidationError):
+            validate_calendar(raw.replace(old, new))
+
+
+def test_minutes_cannot_use_page_update_as_publication_evidence() -> None:
+    spec = PILOT_DOCUMENTS[1]
+    evidence = replace(validate_calendar(calendar_body()), minutes_dates=())
+    with pytest.raises(FomcValidationError):
+        validate_document(fetched(spec), evidence)
+
+
+def test_minutes_meeting_and_unicode_dash() -> None:
+    spec = PILOT_DOCUMENTS[1]
+    evidence = validate_calendar(calendar_body())
+    raw = document_body(spec)
+    assert validate_document(fetched(spec, raw.replace(b"17-18", "17–18".encode())), evidence)
+    with pytest.raises(FomcValidationError):
+        validate_document(fetched(spec, raw.replace(b"17-18", b"16-18")), evidence)
+
+
+def test_script_does_not_supply_missing_identity() -> None:
+    spec = PILOT_DOCUMENTS[0]
+    raw = document_body(spec).replace(b'<p class="article__time">', b"<script>")
+    with pytest.raises(FomcValidationError):
+        validate_document(fetched(spec, raw), validate_calendar(calendar_body()))
