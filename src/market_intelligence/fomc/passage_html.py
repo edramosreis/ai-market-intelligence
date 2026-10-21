@@ -116,7 +116,7 @@ def inline_text(children: list[_Node | str]) -> InlineText:
             unquote(href[1:]) if item.tag == "a" and href.startswith("#") and len(href) > 1 else ""
         )
         start = length
-        backlink = target and item.text() == "Return to text"
+        backlink = bool(re.fullmatch(r"f[0-9]+", target)) and item.text() == "Return to text"
         if not backlink:
             for child in item.children:
                 visit(child, superscript or item.tag == "sup")
