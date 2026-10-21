@@ -11,7 +11,7 @@ from market_intelligence.fomc.catalog import PILOT_DOCUMENTS, pilot_document
 from market_intelligence.fomc.client import MAX_RESPONSE_BYTES, FetchedDocument
 from market_intelligence.fomc.models import CALENDAR_URL, ORIGIN, DocumentKind, DocumentSpec
 
-VALIDATOR_VERSION = "fomc-identity-v1"
+VALIDATOR_VERSION = "fomc-identity-v2"
 MONTHS = (
     "",
     "January",
@@ -44,6 +44,53 @@ VOID_TAGS = {
     "wbr",
 }
 EXCLUDED = {"script", "style", "template", "noscript", "svg"}
+# HTML permits an omitted </p> before these block starts. Keep this bounded subset
+# separate from the explicit head/body/article completeness checks.
+PARAGRAPH_END_STARTS = {
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "details",
+    "dialog",
+    "div",
+    "dl",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hgroup",
+    "hr",
+    "main",
+    "menu",
+    "nav",
+    "ol",
+    "p",
+    "pre",
+    "search",
+    "section",
+    "table",
+    "ul",
+}
+PARAGRAPH_SCOPE_ENDS = {
+    "applet",
+    "caption",
+    "html",
+    "table",
+    "td",
+    "th",
+    "marquee",
+    "object",
+    "button",
+}
 
 
 class FomcValidationError(ValueError):
@@ -99,6 +146,15 @@ class _Page(HTMLParser):
         ]
         if len({name for name, _ in relevant}) != len(relevant):
             raise FomcValidationError()
+        if tag in PARAGRAPH_END_STARTS and not any(n.tag in EXCLUDED for n in self.stack):
+            for index in range(len(self.stack) - 1, 0, -1):
+                previous = self.stack[index]
+                if previous.tag == "p":
+                    previous.complete = True
+                    del self.stack[index:]
+                    break
+                if previous.tag in PARAGRAPH_SCOPE_ENDS:
+                    break
         node = _Node(tag, dict(relevant), complete=tag in VOID_TAGS)
         self.stack[-1].children.append(node)
         if tag not in VOID_TAGS:

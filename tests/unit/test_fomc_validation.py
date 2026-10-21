@@ -17,7 +17,7 @@ def test_identity_and_separate_publication_evidence(spec: DocumentSpec) -> None:
     result = validate_document(fetched(spec), validate_calendar(calendar_body()))
     assert result.fetched.document == spec
     assert result.page_update_text == "Last Update: October 09, 2024"
-    assert result.validator_version == "fomc-identity-v1"
+    assert result.validator_version == "fomc-identity-v2"
     assert result.release_time_text == spec.release_time_text
 
 
@@ -107,3 +107,39 @@ def test_truncated_full_page_rejected(suffix: bytes) -> None:
 def test_calendar_media_type_is_checked(media: str) -> None:
     with pytest.raises(FomcValidationError):
         validate_calendar(calendar_body(), media)
+
+
+@pytest.mark.parametrize("index", [0, 2])
+@pytest.mark.parametrize("block", ["div", "p"])
+def test_omitted_release_paragraph_end_excludes_following_share_ui(index: int, block: str) -> None:
+    spec = PILOT_DOCUMENTS[index]
+    body = document_body(spec).replace(
+        f"<p>{spec.release_time_text}</p>".encode(),
+        (
+            f'<p class="releaseTime">{spec.release_time_text}'
+            f'<{block} class="shareOptions">Share</{block}>'
+        ).encode(),
+    )
+    result = validate_document(fetched(spec, body), validate_calendar(calendar_body()))
+    assert result.release_time_text == spec.release_time_text
+
+
+def test_implicit_end_does_not_accept_wrong_release_time() -> None:
+    spec = PILOT_DOCUMENTS[0]
+    body = document_body(spec).replace(
+        f"<p>{spec.release_time_text}</p>".encode(),
+        b'<p class="releaseTime">For release at 3:00 p.m. EDT<div>Share</div>',
+    )
+    with pytest.raises(FomcValidationError):
+        validate_document(fetched(spec, body), validate_calendar(calendar_body()))
+
+
+def test_hidden_svg_cannot_close_visible_identity_paragraph() -> None:
+    from market_intelligence.fomc.validation import _Page
+
+    parser = _Page()
+    parser.feed("<p>visible<svg><div>hidden</div></svg>continued</p>")
+    parser.close()
+    paragraphs = [n for n in parser.root.nodes() if n.tag == "p"]
+    assert len(paragraphs) == 1 and paragraphs[0].complete
+    assert paragraphs[0].text() == "visible continued"
