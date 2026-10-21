@@ -375,4 +375,18 @@ repeat read, preserving earlier partial-failure audits and native fingerprints. 
 varied while retained per-source article text matched; preserve representations without
 inferring policy corrections. Identical-byte replay is verified deterministically. Keep
 originals/acceptance records private and require a reviewed scope for further collection.
-Passage extraction/chunking, retrieval, pgvector and document-agent tools remain later work.
+Offline blocks/passages are implemented in passage_models.py, passage_html.py,
+parsing.py and chunking.py. Pure parse_document/chunk_document functions preserve raw
+lineage, exact Unicode-code-point spans, source anchors/notes and ordered block contexts.
+Keep the existing validator/0006 objects unchanged. Parser bounds are 2 MiB input,
+25k nodes, depth 128, 2000 blocks and 1 MiB canonical UTF-8. Chunking is 1800 target /
+2400 hard characters, no overlap, at most 1024 passages; retain boundary spaces and
+fail if a reference label cannot fit. Never infer sentence semantics from the heuristic.
+Auxiliary contact/link text remains inspectable and notes remain document-wide.
+
+This checkpoint passes 1285 tests (879 unit / 406 integration), Ruff and strict mypy.
+Offline network-disabled inspection of all eleven retained raw versions verifies
+visible body-character preservation, source-note bindings, per-document content hashes
+and lossless passage spans. No new source/model request or processing persistence occurs.
+Keep originals/previews private. Exact processing schema/grants/publication, retrieval,
+pgvector and document-agent tools remain separately reviewed work.

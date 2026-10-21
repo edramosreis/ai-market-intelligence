@@ -1123,9 +1123,9 @@ worktree; that path is excluded from Git and Docker. Runtime defaults use the pr
 Deterministic tests use synthetic pages/HTTP, temporary artifact directories and only
 guarded `db-test` / `market_intelligence_test`. Run the M3 `--test build`, `--test quality`,
 `--test test`, then `--test down` commands above. The ingestion checkpoint passes 1243
-tests (837 unit / 406 integration), Ruff and strict mypy. Passage extraction, chunking,
-retrieval/citations, vectors and document-agent tools are later slices; this checkpoint
-makes no model/embedding call.
+tests (837 unit / 406 integration), Ruff and strict mypy. The newer offline processing
+checkpoint is described below; persistence, retrieval/citations, vectors and document-agent
+tools remain later slices. Neither checkpoint makes a model/embedding call.
 
 Separate live storage checks on 2026-10-21 completed the four-original pilot and a repeat
 read in the isolated M3 database at revision 0006. All original hashes/sizes, identity and
@@ -1142,6 +1142,41 @@ not establish a policy correction or historical publisher vintage. Identical-byt
 behavior is covered deterministically. Originals remain private, with no pending/orphan
 files. These checks establish the bounded pilot's storage behavior; wider source coverage
 and passage retrieval remain separate reviewed work.
+
+## Offline FOMC blocks and passages
+
+`fomc/parsing.py` exposes `parse_document(fetched, calendar)` for an existing
+`FetchedDocument` and validated `CalendarEvidence`; `fomc/chunking.py` exposes
+`chunk_document(parsed)`. Both are pure functions over already acquired data. They return
+typed in-memory results rather than fetching, writing files/database rows, or invoking a
+model. There is no processing CLI or search endpoint in this slice. Existing locked
+dependencies and the M3 test commands above suffice; no installation change is required.
+
+The narrow statement/minutes adapter preserves ordered paragraphs, actual section
+headings, quote/list context, footnotes and source anchors. Header/share/sidebar content
+is excluded; media contacts and related links remain inspectable auxiliary blocks.
+Unsupported tables, ambiguous/incomplete boundaries and dangling notes fail explicitly.
+Inline whitespace is normalized while visible numbers, signs, punctuation and Unicode
+are preserved. Source strings remain inert evidence. This adapter supports the fixed
+pilot layouts; broader document coverage requires a separate reviewed collection scope.
+
+Processing generations bind raw versions and parser configuration to structured content
+hashes. Cosmetic raw changes may retain equal extracted hashes while producing distinct
+raw-specific generation/passage IDs. Passage spans identify zero-based blocks and
+half-open Unicode-code-point offsets into canonical block text, rather than HTML bytes
+or PDF pages. Actual source anchors are retained separately. Chunking targets 1,800 and
+caps bodies at 2,400 characters, packs within section/context boundaries without overlap,
+and marks fragments. Oversized blocks use a recorded sentence/whitespace/character
+fallback; exact spans reconstruct the source text, including boundary spaces.
+
+All 1285 deterministic tests (879 unit / 406 integration), Ruff and strict mypy pass.
+Separate network-disabled inspection of eleven retained raw versions on 2026-10-21
+verified complete non-whitespace body-character preservation after the documented
+metadata/navigation exclusions, note bindings, per-document content equivalence and
+exact nonoverlapping passage reconstruction. The four logical documents yield 297
+blocks and 97 passages, including retained auxiliary material. No new provider/model
+call, processing migration or persistent processing output was created. Exact processing
+schema/grants/publication and retrieval/citation readers remain separate reviewed slices.
 
 ## Source package organization
 

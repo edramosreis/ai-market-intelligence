@@ -1229,7 +1229,8 @@ use only M3 resources. Runtime database initialization and API startup are indiv
 opt-ins, not automatic setup. Scheduler/agent stay fixed off with no model keys;
 no development-volume deletion or arbitrary command passthrough is exposed. Existing
 migration head on this feature is 0006. FOMC originals/provenance are described below;
-parsing/chunking, retrieval, vectors and research-model tools remain later components.
+offline parsing/chunking is described in section 19; persistence, retrieval, vectors and
+research-model tools remain later components.
 
 ## 18. Fixed FOMC originals and acquisition provenance
 
@@ -1308,4 +1309,48 @@ current pointers, grants and unchanged native fingerprints passed inspection. Ea
 partial failures remain audited. Raw bytes varied while per-source article text matched;
 retain raw versions without inferring policy corrections. Identical-byte replay remains
 deterministically tested. Source expansion requires a separate reviewed collection scope.
-There is no passage extraction/chunking, search endpoint, pgvector, embedding or new model tool.
+Offline passage extraction is described in section 19. Processing persistence, search,
+pgvector, embeddings and model tools remain later slices.
+
+
+## 19. Offline FOMC processing generations and passage spans
+
+`passage_models.py`, `passage_html.py`, `parsing.py` and `chunking.py` implement the
+reviewed pure offline processing boundary. Raw HTML identity validation remains v3;
+the acquisition validator and 0006 schema are unchanged. The passage tree adds named
+anchors/list attributes without flattening adjacent inline numbers or changing the
+existing validator. Single statement-content or minutes-article boundaries are required.
+Known leading-bold section patterns are distinguished from ordinary emphasis; quoted
+and list text is emitted once. Metadata/datelines remain separate, auxiliary footer text
+is retained, and document-wide notes do not inherit the final attendance section.
+
+Parser v1 records 2-MiB input / 25,000-node / 128-depth / 2,000-block / 1-MiB canonical
+UTF-8 bounds. Chunker v1 records a 1,800-character target, 2,400-character hard body cap
+and 1,024-passage limit. Failures produce no successful partial result. Unknown tables,
+unmatched notes or incomplete/ambiguous layouts fail rather than using whole-page text.
+Missing ordinary local links are explicit issues. Text/attributes cannot trigger I/O.
+
+Canonical structured hashes include block kinds/order, text, section/quote/list context,
+anchors, references and issues. Plain-text hashes are recorded separately. Generation
+IDs hash document/raw-version identity, parser version/config and canonical content;
+passage IDs add chunker version/config, ordered block/span coordinates and text hash.
+Neither depends on clocks, file paths or DB sequences. Cosmetic HTML changes can retain
+content hashes with distinct raw-specific lineage. Source anchors are actual anchors;
+derived spans use half-open Python Unicode-code-point offsets, not source byte positions.
+
+The chunker keeps headings as context, separates differing block/quote/list/section
+contexts, and packs whole blocks up to its soft target (a single block may reach the hard
+cap). For oversized blocks, it prefers the last qualifying sentence end up to target,
+then hard cap, then equivalent whitespace boundaries, then a character fallback. A
+qualifying boundary lies at least half a target beyond the fragment start. Fixed common
+abbreviations/initialisms are excluded from the sentence heuristic. Reference labels are
+not split; an unbreakable oversized label fails. Boundary spaces remain in their exact
+fragment spans. The heuristic does not claim linguistic sentence understanding.
+
+1285 deterministic tests, Ruff and strict mypy pass. Read-only-volume, network-disabled
+inspection of all eleven stored representations verified unchanged visible body characters
+apart from documented whitespace/metadata/navigation handling, note bindings, equivalent
+per-document content hashes, distinct raw generations and lossless passage spans. This is
+bounded offline extraction evidence, not wider FOMC coverage or a retrieval quality claim.
+No processing table, new revision, deployment, endpoint or model was added. Exact additive
+processing DDL/current publication and then reader/retrieval contracts remain gated.
