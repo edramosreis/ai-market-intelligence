@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Milestone 1 uses Python 3.14, uv, SQLAlchemy Core/psycopg, Alembic, Pydantic Settings, HTTPX, FastAPI/Uvicorn, the official OpenAI SDK, and PostgreSQL 18. `src/market_intelligence/` contains configuration, CLI, and HTTP transport (`api.py`); `db/` contains metadata, roles, connections, and persistence; `ingestion/` contains validation, Coinbase transport, and monthly orchestration; `queries/` contains read-only calculations/evidence; `agent/` contains strict arguments, instructions, ten fixed BTC/Treasury/Hyperliquid/macro tools, and the bounded Responses loop. `migrations/` has immutable revisions/seeds. `tests/unit/` and `tests/integration/` contain deterministic provider, query/API, agent, and PostgreSQL checks; `tests/agent_fakes.py` supplies synthetic replies through the real SDK's in-memory transport. `scripts/init_local_env.py` creates ignored credentials. Docker/Compose support runtime jobs, the localhost API, and isolated tests. Keep generated output, environments, and datasets out of Git. Add `assets/` only when static resources exist.
+Milestone 1 uses Python 3.14, uv, SQLAlchemy Core/psycopg, Alembic, Pydantic Settings, HTTPX, FastAPI/Uvicorn, the official OpenAI SDK, and PostgreSQL 18. `src/market_intelligence/` contains configuration, CLI, and HTTP transport (`api.py`); `db/` contains metadata, roles, connections, and persistence; `time_utils.py` contains provider-independent UTC/time parsing; `coinbase/` contains spot-candle validation, HTTP transport (`client.py`), and monthly orchestration; `queries/` contains read-only calculations/evidence; `agent/` contains strict arguments, instructions, ten fixed BTC/Treasury/Hyperliquid/macro tools, and the bounded Responses loop. `migrations/` has immutable revisions/seeds. `tests/unit/` and `tests/integration/` contain deterministic provider, query/API, agent, and PostgreSQL checks; `tests/agent_fakes.py` supplies synthetic replies through the real SDK's in-memory transport. `scripts/init_local_env.py` creates ignored credentials. Docker/Compose support runtime jobs, the localhost API, and isolated tests. Keep generated output, environments, and datasets out of Git. Add `assets/` only when static resources exist.
 
 The Treasury component lives in `treasury/`: native date/tenor/yield models, a bounded monthly XML client, explicit monthly orchestration, and read-only curve/range/spread queries with evidence models. `db/treasury_store.py` writes current values plus ingestion provenance to revision `0002`'s dedicated facts/audits. Treasury tests use synthetic XML and real isolated PostgreSQL for constraints, grants, migration compatibility, replay, corrections, omitted dates, locking, rollback, pagination, and snapshots. `scripts/check_treasury_live.py` checks the source; `scripts/check_treasury_api.py` compares stored HTTP results to fresh samples. The agent reuses single-date curves and compact paginated benchmark/spread evidence; simulated-model tests verify actual reader queries. Six Treasury live acceptance cases passed separate evidence/prose inspection; README records their scope and the cursor/coverage fixes.
 
@@ -338,3 +338,41 @@ Commit file additions, edits, and removals promptly in small, coherent batches a
 ## Security & Configuration
 
 Never commit credentials, keys, private datasets, dumps, or personal prompts. `.env.example` contains placeholders; actual configuration belongs in ignored `.env` or runtime environment. Supply only needed credentials: administrator for bootstrap/migrations, writer for ingestion, reader for API/agent. Only the API receives optional OpenAI configuration. Market endpoints and deterministic tests need no real OpenAI key. Do not persist conversations or log full prompts/answers, authorization headers, or SDK payloads. Exclude secrets from Docker context and Git. Update this guide and README when commands, layout, or dependencies change.
+
+## FOMC original ingestion
+
+`fomc/` contains the reviewed four-original September/November 2024 Board pilot.
+`catalog.py` fixes identities/metadata; `client.py` shares bounded document/calendar reads;
+`validation.py` checks complete UTF-8 HTML identity boundaries and calendar publication
+evidence. Preserve the eight-attempt/two-per-URL/one-second/120-second/2-MiB-response/
+16-MiB-combined limits, bounded single-member gzip, clean public requests and controlled
+access/backpressure stops. Cache/page-update labels never replace publication evidence.
+
+Revision `0006` adds five FOMC tables and no extension. `db/fomc_store.py` keeps immutable
+versions/receipts, initial provenance, current confirmations, stale-receipt protection
+and durable single-command reservations in short transactions. No connection spans HTTP,
+sleep or artifact work. Writer access is append-only for versions/receipts, SELECT-only
+for catalog, INSERT/UPDATE for runs/current and never DELETE; reader stays SELECT-only.
+Raw hashes cover decoded entity bytes, with stable document-v1/raw-html-v1 identity rules.
+Changed bytes establish a local representation, not a policy correction or vintage claim.
+
+`fomc/artifacts.py` atomically publishes private hash-addressed originals without
+overwriting; verify existing bytes and reject symlinks/corruption. DB failure can leave
+an unreferenced artifact: report and inspect it, never automatically remove originals.
+`ingest-fomc --pilot`, `--status` and `--reconcile-run UUID` are manual controls; a running
+reservation must be inspected/stopped before reconciliation. Restrict database access to
+M3 or guarded deterministic db-test, and artifacts to the M3 volume/ignored linked data.
+
+Use `scripts/m3.py fomc-status`, `fomc-ingest`, or `fomc-reconcile --run-id UUID` only after
+the relevant runtime/live approval. Only ingest mounts the M3 artifact volume; agent and
+scheduler remain disabled. Deterministic checks use synthetic HTML/HTTP and temporary
+files with isolated PostgreSQL, never a live document batch or model call. The checkpoint
+passes 1243 tests, Ruff and strict mypy. Receipt validator versions distinguish omitted
+paragraph-end handling and exact leading minutes datelines that share opening prose.
+The native --max-requests option lowers the shared command cap to 1–8 (default 8).
+Separate isolated live storage checks on 2026-10-21 completed the four-original pilot and
+repeat read, preserving earlier partial-failure audits and native fingerprints. Raw bytes
+varied while retained per-source article text matched; preserve representations without
+inferring policy corrections. Identical-byte replay is verified deterministically. Keep
+originals/acceptance records private and require a reviewed scope for further collection.
+Passage extraction/chunking, retrieval, pgvector and document-agent tools remain later work.

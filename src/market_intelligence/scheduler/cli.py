@@ -12,10 +12,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.scheduler_store import LeadershipLost, SchedulerBusy, SchedulerStore
-from market_intelligence.ingestion.models import utc_now
 from market_intelligence.scheduler.jobs import DEFINITIONS, JobId, SchedulerSettings, next_slot
 from market_intelligence.scheduler.process import ProcessRunner, require_runtime
 from market_intelligence.scheduler.service import SchedulerService
+from market_intelligence.time_utils import utc_now
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

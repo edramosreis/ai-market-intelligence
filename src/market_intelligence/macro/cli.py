@@ -12,7 +12,6 @@ import httpx
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.macro_store import MacroStore
-from market_intelligence.ingestion.models import utc_now
 from market_intelligence.macro.bls import BlsClient
 from market_intelligence.macro.fed import FedClient
 from market_intelligence.macro.jobs import (
@@ -25,6 +24,7 @@ from market_intelligence.macro.jobs import (
 from market_intelligence.macro.models import MacroProvider, MonthlyWindow, utc
 from market_intelligence.macro.service import ingest_macro
 from market_intelligence.macro.storage_models import MacroWriteReport
+from market_intelligence.time_utils import utc_now
 
 
 @dataclass(frozen=True)

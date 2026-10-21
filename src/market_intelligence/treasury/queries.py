@@ -12,8 +12,8 @@ from sqlalchemy import Connection, Engine
 from market_intelligence.config import ApiSettings
 from market_intelligence.db.tables import treasury_ingestion_runs as runs
 from market_intelligence.db.tables import treasury_yields as yields
-from market_intelligence.ingestion.models import as_utc, utc_now
 from market_intelligence.queries.models import QueryValidationError
+from market_intelligence.time_utils import as_utc, utc_now
 from market_intelligence.treasury.models import (
     DATASET_CODE,
     SOURCE_CODE,

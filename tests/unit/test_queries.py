@@ -4,14 +4,15 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from market_intelligence.coinbase.models import TimeWindow
 from market_intelligence.config import ApiSettings
-from market_intelligence.ingestion.models import TimeWindow, parse_instant
 from market_intelligence.queries.models import (
     QueryValidationError,
     cursor_after,
     cursor_for,
     validate_window,
 )
+from market_intelligence.time_utils import parse_instant
 
 START = parse_instant("2024-01-01")
 END = START + timedelta(hours=1)

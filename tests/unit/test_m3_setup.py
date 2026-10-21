@@ -93,7 +93,10 @@ def resolved_model(root: Path, values: dict[str, str], testing: bool) -> dict[st
         "services": {},
     }
     if not testing:
-        model["volumes"] = {"postgres_data": {"name": name + "_postgres_data"}}
+        model["volumes"] = {
+            "postgres_data": {"name": name + "_postgres_data"},
+            "fomc_artifacts": {"name": name + "_fomc_artifacts"},
+        }
     commands = {
         "api": ["serve", "--host", "0.0.0.0", "--port", "8000"],
         "migrate": ["init-db"],
@@ -135,6 +138,15 @@ def resolved_model(root: Path, values: dict[str, str], testing: bool) -> dict[st
                     "type": "volume",
                     "source": "postgres_data",
                     "target": "/var/lib/postgresql",
+                    "volume": {},
+                }
+            ]
+        if service == "ingest":
+            item["volumes"] = [
+                {
+                    "type": "volume",
+                    "source": "fomc_artifacts",
+                    "target": "/app/data/fomc",
                     "volume": {},
                 }
             ]
@@ -361,4 +373,62 @@ def test_occupied_port_refuses_start(launcher: ModuleType, monkeypatch: pytest.M
 def test_runtime_cleanup_not_exposed(launcher: ModuleType) -> None:
     with pytest.raises(SystemExit) as error:
         launcher.main(["down"])
+    assert error.value.code == 2
+
+
+@pytest.mark.parametrize("mutation", ["foreign_volume", "missing_mount", "bind_mount", "api_mount"])
+def test_fomc_artifact_boundary(launcher: ModuleType, linked_root: Path, mutation: str) -> None:
+    values = configuration(linked_root, False)
+    model = resolved_model(linked_root, values, False)
+    if mutation == "foreign_volume":
+        model["volumes"]["fomc_artifacts"]["name"] = "ai-market-intelligence_fomc_artifacts"
+    elif mutation == "missing_mount":
+        del model["services"]["ingest"]["volumes"]
+    elif mutation == "bind_mount":
+        model["services"]["ingest"]["volumes"][0]["type"] = "bind"
+    else:
+        model["services"]["api"]["volumes"] = model["services"]["ingest"]["volumes"]
+    with pytest.raises(launcher.IsolationError):
+        launcher.validate_model(model, linked_root, False, values)
+
+
+@pytest.mark.parametrize(
+    "action,service,flag",
+    [("fomc-ingest", "ingest", "--pilot"), ("fomc-status", "check", "--status")],
+)
+def test_fomc_manual_operations_are_exact(
+    launcher: ModuleType,
+    linked_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    service: str,
+    flag: str,
+) -> None:
+    values = configuration(linked_root, False)
+    model = resolved_model(linked_root, values, False)
+    execute = MagicMock(
+        side_effect=[
+            subprocess.CompletedProcess([], 0, json.dumps(model), ""),
+            subprocess.CompletedProcess([], 0, "", ""),
+        ]
+    )
+    monkeypatch.setattr(launcher.subprocess, "run", execute)
+    assert launcher.run(linked_root, False, action) == 0
+    assert execute.call_args.args[0][-5:] == ["run", "--rm", service, "ingest-fomc", flag]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--test", "fomc-ingest"],
+        ["--test", "fomc-status"],
+        ["fomc-reconcile"],
+        ["validate", "--run-id", "00000000-0000-0000-0000-000000000001"],
+    ],
+)
+def test_fomc_runtime_option_misuse_refused_before_docker(
+    launcher: ModuleType, args: list[str]
+) -> None:
+    with pytest.raises(SystemExit) as error:
+        launcher.main(args)
     assert error.value.code == 2

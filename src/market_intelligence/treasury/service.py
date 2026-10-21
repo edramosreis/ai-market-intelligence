@@ -8,7 +8,7 @@ from datetime import date, datetime
 from sqlalchemy.exc import SQLAlchemyError
 
 from market_intelligence.db.treasury_store import TreasuryStore
-from market_intelligence.ingestion.models import as_utc, utc_now
+from market_intelligence.time_utils import as_utc, utc_now
 from market_intelligence.treasury.client import TreasuryClient
 from market_intelligence.treasury.models import (
     TreasuryError,

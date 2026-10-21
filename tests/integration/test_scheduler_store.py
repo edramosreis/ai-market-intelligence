@@ -404,6 +404,7 @@ def test_migration_preserves_existing_catalogs_and_facts(connection: Connection)
         table
         for name, table in metadata.tables.items()
         if name not in {"scheduler_job_state", "scheduled_job_runs"}
+        and not name.startswith("fomc_")
     ]
     before = {table.name: connection.execute(sa.select(table)).mappings().all() for table in domain}
     config = migration_config()

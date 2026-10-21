@@ -14,7 +14,8 @@ COPY migrations/ migrations/
 
 FROM base AS runtime
 RUN uv sync --frozen --no-dev --no-editable && \
-    useradd --uid 10001 --create-home app
+    useradd --uid 10001 --create-home app && \
+    install -d -o app -g app /app/data/fomc
 USER app
 ENTRYPOINT ["market-intelligence"]
 CMD ["check-db"]

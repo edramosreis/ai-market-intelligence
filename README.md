@@ -1063,3 +1063,90 @@ candles, 86 Coinbase audits, 128,758 Treasury facts and 446 Treasury audits. The
 API/database are healthy, the persistent agent remains disabled, and no model call or
 archive access was made for these checks. Test containers/network were removed while
 preserving the development volume.
+
+## FOMC original-document ingestion
+
+The manual pilot covers four official Board HTML originals: statements and minutes for
+the September 17–18 and November 6–7, 2024 meetings. Minutes publication dates are October 9
+and November 26. The [official calendar](https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm)
+supplies publication evidence; [Board reuse terms](https://www.federalreserve.gov/disclaimer.htm)
+require attribution and distinguish third-party content and protected logos. This fixed
+pilot does not establish complete FOMC coverage.
+
+`fomc/` separates the fixed catalog/identities, bounded HTTP acquisition, narrow HTML
+identity validation, private originals and manual orchestration. Existing locked HTTPX
+and stdlib HTMLParser suffice; no dependency or PostgreSQL extension was added. Meeting
+dates, publication date labels, explicit statement release-time text, page-update/cache
+hints and local fetch/receipt times retain their distinct meanings. Minutes require the
+matching calendar evidence. Retrieved page text never becomes executable instructions.
+
+Calendar plus document reads share eight attempts, two per URL, at least one-second
+spacing, a cooperative 120-second monotonic deadline, separate 2 MiB wire/entity limits
+and a 16 MiB combined read budget. Five successful reads cover this pilot. Bounded
+single-member gzip is supported; redirects, unsolicited 304, access rejection and
+throttling fail explicitly. Selected transient retries consume the same budgets.
+The native `ingest-fomc --pilot --max-requests 5` option can lower the shared command
+allowance to one–eight attempts (default eight); it does not track cumulative batch usage.
+
+Additive migration `0006` introduces five FOMC tables: fixed catalog, run audits,
+immutable successful receipts, immutable raw versions and current pointers. Earlier
+revisions and native facts are unchanged. Equal bytes preserve the version's first
+receipt; every successful replay adds a confirmation receipt. Changed bytes create a
+locally observed representation, without establishing a policy correction or historical
+publisher vintage. Reader access stays SELECT-only; writer grants prohibit deletion and
+updates to the catalog, originals and receipts. Updated readers require revision 0006.
+
+Original decoded HTML is content-addressed at `sha256/<prefix>/<digest>.html`. The M3
+ingest service alone mounts `ai-market-intelligence-m3_fomc_artifacts` at `/app/data/fomc`.
+Atomic no-overwrite placement verifies existing objects and rejects corruption/symlinks.
+Only then does a short transaction commit receipt/version/current/count updates together.
+No database connection spans HTTP, pacing or file writes. Earlier document commits survive
+later failure; a DB failure can leave an explicitly reported unreferenced artifact, never
+an automatic deletion. An interrupted process leaves a durable running reservation;
+inspect and stop it before explicitly reconciling its run ID.
+
+From the linked M3 worktree, the guarded commands below are opt-in runtime operations
+after separate database/image provisioning and live-collection approval:
+
+```powershell
+.venv\Scripts\python.exe scripts/m3.py fomc-status
+.venv\Scripts\python.exe scripts/m3.py fomc-ingest
+.venv\Scripts\python.exe scripts/m3.py fomc-reconcile --run-id <inspected-interrupted-run-uuid>
+```
+
+They invoke `ingest-fomc --status` with reader credentials, `--pilot` with writer
+credentials, or `--reconcile-run UUID` without provider calls. There is no arbitrary
+URL/date crawl or implicit resume. The database guard refuses the demo target. Native
+host use requires fresh M3 credentials and `--artifact-root ./data/fomc` in the linked
+worktree; that path is excluded from Git and Docker. Runtime defaults use the private volume.
+
+Deterministic tests use synthetic pages/HTTP, temporary artifact directories and only
+guarded `db-test` / `market_intelligence_test`. Run the M3 `--test build`, `--test quality`,
+`--test test`, then `--test down` commands above. The ingestion checkpoint passes 1243
+tests (837 unit / 406 integration), Ruff and strict mypy. Passage extraction, chunking,
+retrieval/citations, vectors and document-agent tools are later slices; this checkpoint
+makes no model/embedding call.
+
+Separate live storage checks on 2026-10-21 completed the four-original pilot and a repeat
+read in the isolated M3 database at revision 0006. All original hashes/sizes, identity and
+calendar evidence, immutable provenance, current pointers and role grants passed offline
+inspection; native table fingerprints stayed unchanged. Earlier partial failures remain
+audited with their successfully stored originals. The checks exposed and repaired valid
+omitted paragraph endings and a minutes dateline sharing its paragraph with opening prose.
+Validation still requires exact leading meeting dates, source URLs/titles and calendar
+publication evidence. The validator version is recorded separately on every receipt.
+
+Raw HTML bytes changed across these reads while extracted article text matched for each
+retained source. Storage therefore appended raw representations; this observation does
+not establish a policy correction or historical publisher vintage. Identical-byte replay
+behavior is covered deterministically. Originals remain private, with no pending/orphan
+files. These checks establish the bounded pilot's storage behavior; wider source coverage
+and passage retrieval remain separate reviewed work.
+
+## Source package organization
+
+`coinbase/` contains the fixed Coinbase spot-candle models, HTTP client (`client.py`)
+and ingestion orchestration. `time_utils.py` supplies shared UTC conversion, current
+UTC time and explicit timestamp parsing to native readers, providers, API, agent and
+scheduler code. Five-minute candle alignment and settling rules remain Coinbase-specific.
+The `ingest` command and all HTTP routes, source contracts and database objects are unchanged.

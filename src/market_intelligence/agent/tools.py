@@ -20,7 +20,6 @@ from market_intelligence.agent.models import (
     WindowArguments,
 )
 from market_intelligence.hyperliquid.queries import HyperliquidQueries
-from market_intelligence.ingestion.models import parse_instant
 from market_intelligence.macro.queries import MacroQueries
 from market_intelligence.macro.query_models import (
     MacroObservationPage,
@@ -29,6 +28,7 @@ from market_intelligence.macro.query_models import (
 )
 from market_intelligence.queries.models import UnknownMarketError, validate_window
 from market_intelligence.queries.service import MarketQueries
+from market_intelligence.time_utils import parse_instant
 from market_intelligence.treasury.queries import TreasuryQueries
 from market_intelligence.treasury.query_models import TreasurySpreadPage, treasury_date
 

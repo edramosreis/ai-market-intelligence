@@ -32,7 +32,6 @@ from market_intelligence.hyperliquid.query_models import (
     OpenInterestLatest,
     OpenInterestPage,
 )
-from market_intelligence.ingestion.models import parse_instant, utc_now
 from market_intelligence.macro.queries import MacroQueries
 from market_intelligence.macro.query_models import (
     MacroLatest,
@@ -51,6 +50,7 @@ from market_intelligence.queries.models import (
     UnknownMarketError,
 )
 from market_intelligence.queries.service import MarketQueries
+from market_intelligence.time_utils import parse_instant, utc_now
 from market_intelligence.treasury.queries import TreasuryQueries
 from market_intelligence.treasury.query_models import (
     TreasuryCurvePage,

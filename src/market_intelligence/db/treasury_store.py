@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from market_intelligence.db.tables import treasury_ingestion_runs as runs
 from market_intelligence.db.tables import treasury_yields as yields
-from market_intelligence.ingestion.models import as_utc
+from market_intelligence.time_utils import as_utc
 from market_intelligence.treasury.models import (
     DATASET_CODE,
     SOURCE_CODE,

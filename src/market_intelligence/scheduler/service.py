@@ -8,9 +8,9 @@ from uuid import UUID, uuid4
 
 from market_intelligence.config import DatabaseSettings
 from market_intelligence.db.scheduler_store import Leader, SchedulerStore
-from market_intelligence.ingestion.models import utc_now
 from market_intelligence.scheduler.jobs import DEFINITIONS, JobDefinition, SchedulerSettings
 from market_intelligence.scheduler.models import ChildOutcome
+from market_intelligence.time_utils import utc_now
 
 
 class Runner(Protocol):

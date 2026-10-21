@@ -10,6 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy import Connection, Engine
 from sqlalchemy.dialects.postgresql import aggregate_order_by
 
+from market_intelligence.coinbase.models import INTERVAL, TimeWindow, closed_cutoff
 from market_intelligence.config import ApiSettings
 from market_intelligence.db.macro_tables import (
     macro_current,
@@ -27,13 +28,6 @@ from market_intelligence.db.tables import (
     treasury_ingestion_runs,
     treasury_yields,
 )
-from market_intelligence.ingestion.models import (
-    INTERVAL,
-    TimeWindow,
-    as_utc,
-    closed_cutoff,
-    utc_now,
-)
 from market_intelligence.queries.models import (
     CandleEvidence,
     CandlePage,
@@ -49,9 +43,10 @@ from market_intelligence.queries.models import (
     cursor_for,
     validate_window,
 )
+from market_intelligence.time_utils import as_utc, utc_now
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-EXPECTED_REVISION = "0005"
+EXPECTED_REVISION = "0006"
 
 
 class MarketQueries:

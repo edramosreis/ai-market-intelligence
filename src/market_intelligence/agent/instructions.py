@@ -2,7 +2,8 @@
 
 from datetime import datetime, timedelta
 
-from market_intelligence.ingestion.models import as_utc, closed_cutoff
+from market_intelligence.coinbase.models import closed_cutoff
+from market_intelligence.time_utils import as_utc
 
 
 def instructions(now: datetime) -> str:

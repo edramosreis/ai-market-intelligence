@@ -10,6 +10,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from secrets import token_urlsafe
 from typing import Any
+from uuid import UUID
 
 POSTGRES_IMAGE = (
     "postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650"
@@ -174,7 +175,14 @@ def validate_model(
         and network.get("ipam", {}) == {},
         "Wrong network.",
     )
-    volumes = {} if testing else {"postgres_data": {"name": PROJECT + "_postgres_data"}}
+    volumes = (
+        {}
+        if testing
+        else {
+            "postgres_data": {"name": PROJECT + "_postgres_data"},
+            "fomc_artifacts": {"name": PROJECT + "_fomc_artifacts"},
+        }
+    )
     require(model.get("volumes", {}) == volumes, "Wrong persistent volume.")
     services = object_value(model.get("services"))
     expected_services = (
@@ -263,6 +271,15 @@ def validate_model(
                 }
             ]
         )
+        if service == "ingest":
+            mounts = [
+                {
+                    "type": "volume",
+                    "source": "fomc_artifacts",
+                    "target": "/app/data/fomc",
+                    "volume": {},
+                }
+            ]
         require(item.get("volumes", []) == mounts, "Unexpected mount or demo volume.")
         require(
             item.get("tmpfs", []) == (["/var/lib/postgresql"] if service == "db-test" else []),
@@ -281,7 +298,15 @@ def check_ports(values: Mapping[str, str], service: str) -> None:
                 raise IsolationError("An isolated localhost port is unavailable.") from None
 
 
-def run(root: Path, testing: bool, action: str) -> int:
+def run(root: Path, testing: bool, action: str, run_id: UUID | None = None) -> int:
+    require(
+        not testing or action not in {"fomc-ingest", "fomc-status", "fomc-reconcile"},
+        "FOMC runtime commands cannot use test resources.",
+    )
+    require(
+        (action == "fomc-reconcile") == (run_id is not None),
+        "Supply a run ID only for explicit FOMC reconciliation.",
+    )
     check_worktree(root)
     values = read_settings(root, testing)
     environment = compose_environment(os.environ)
@@ -330,6 +355,16 @@ def run(root: Path, testing: bool, action: str) -> int:
                 "api": ["up", "-d", "--wait", "api"],
                 "migrate": ["run", "--rm", "migrate"],
                 "check": ["run", "--rm", "check"],
+                "fomc-ingest": ["run", "--rm", "ingest", "ingest-fomc", "--pilot"],
+                "fomc-status": ["run", "--rm", "check", "ingest-fomc", "--status"],
+                "fomc-reconcile": [
+                    "run",
+                    "--rm",
+                    "ingest",
+                    "ingest-fomc",
+                    "--reconcile-run",
+                    str(run_id),
+                ],
             }[action]
         ]
     for arguments in operations:
@@ -359,18 +394,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             "migrate",
             "api",
             "check",
+            "fomc-ingest",
+            "fomc-status",
+            "fomc-reconcile",
         ),
     )
+    parser.add_argument("--run-id", type=UUID, help="An inspected interrupted FOMC run")
     arguments = parser.parse_args(argv)
     if arguments.action in {"quality", "test", "down"} and not arguments.test:
         parser.error("This action requires --test; runtime cleanup is deliberately not exposed.")
     if arguments.action in {"db", "migrate", "api", "check"} and arguments.test:
         parser.error("This action is for the isolated development project.")
+    if (arguments.action == "fomc-reconcile") != (arguments.run_id is not None):
+        parser.error("Supply --run-id only with fomc-reconcile.")
+    if arguments.test and arguments.action.startswith("fomc-"):
+        parser.error("FOMC runtime commands require the isolated development project.")
     root = Path(__file__).resolve().parents[1]
     try:
         if arguments.action == "init":
             initialize(root, arguments.test)
             return 0
+        if arguments.run_id is not None:
+            return run(root, arguments.test, arguments.action, arguments.run_id)
         return run(root, arguments.test, arguments.action)
     except IsolationError as error:
         print(f"Refused: {error}")
