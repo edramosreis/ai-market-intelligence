@@ -1297,10 +1297,15 @@ Read-budget audits retain wire/entity counts, including a rejecting chunk on siz
 no further read is admitted after a cap is crossed. This is a sequential bounded command,
 not a daily source-quota guard or preemptive deadline guarantee.
 
-All 1224 deterministic tests (818 unit / 406 integration), Ruff and strict mypy pass.
+All 1243 deterministic tests (837 unit / 406 integration), Ruff and strict mypy pass.
 Tests cover synthetic source validation/HTTP, private artifacts, real PostgreSQL grants,
 populated-0005 upgrade preservation, replay, rollback, pointer/receipt binding, concurrency,
 crash reservation, no-held-connection behavior and controlled partial failures. Earlier
 revisions/native data and the ten-tool agent contract remain unchanged; updated reader
-readiness expects 0006. Persistent deployment/live-original acceptance remains gated.
+readiness expects 0006. Separate isolated M3 deployment and live storage checks on
+2026-10-21 completed the four-original pilot and repeat read. Retained receipts/files,
+current pointers, grants and unchanged native fingerprints passed inspection. Earlier
+partial failures remain audited. Raw bytes varied while per-source article text matched;
+retain raw versions without inferring policy corrections. Identical-byte replay remains
+deterministically tested. Source expansion requires a separate reviewed collection scope.
 There is no passage extraction/chunking, search endpoint, pgvector, embedding or new model tool.

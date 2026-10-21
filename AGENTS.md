@@ -367,5 +367,12 @@ Use `scripts/m3.py fomc-status`, `fomc-ingest`, or `fomc-reconcile --run-id UUID
 the relevant runtime/live approval. Only ingest mounts the M3 artifact volume; agent and
 scheduler remain disabled. Deterministic checks use synthetic HTML/HTTP and temporary
 files with isolated PostgreSQL, never a live document batch or model call. The checkpoint
-passes 1224 tests, Ruff and strict mypy; README records commands and remaining acceptance.
+passes 1243 tests, Ruff and strict mypy. Receipt validator versions distinguish omitted
+paragraph-end handling and exact leading minutes datelines that share opening prose.
+The native --max-requests option lowers the shared command cap to 1–8 (default 8).
+Separate isolated live storage checks on 2026-10-21 completed the four-original pilot and
+repeat read, preserving earlier partial-failure audits and native fingerprints. Raw bytes
+varied while retained per-source article text matched; preserve representations without
+inferring policy corrections. Identical-byte replay is verified deterministically. Keep
+originals/acceptance records private and require a reviewed scope for further collection.
 Passage extraction/chunking, retrieval, pgvector and document-agent tools remain later work.

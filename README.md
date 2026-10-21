@@ -1085,6 +1085,8 @@ spacing, a cooperative 120-second monotonic deadline, separate 2 MiB wire/entity
 and a 16 MiB combined read budget. Five successful reads cover this pilot. Bounded
 single-member gzip is supported; redirects, unsolicited 304, access rejection and
 throttling fail explicitly. Selected transient retries consume the same budgets.
+The native `ingest-fomc --pilot --max-requests 5` option can lower the shared command
+allowance to one–eight attempts (default eight); it does not track cumulative batch usage.
 
 Additive migration `0006` introduces five FOMC tables: fixed catalog, run audits,
 immutable successful receipts, immutable raw versions and current pointers. Earlier
@@ -1120,11 +1122,26 @@ worktree; that path is excluded from Git and Docker. Runtime defaults use the pr
 
 Deterministic tests use synthetic pages/HTTP, temporary artifact directories and only
 guarded `db-test` / `market_intelligence_test`. Run the M3 `--test build`, `--test quality`,
-`--test test`, then `--test down` commands above. The ingestion checkpoint passes 1224
-tests (818 unit / 406 integration), Ruff and strict mypy. Persistent M3 deployment and
-live-original ingestion remain separate acceptance steps. Passage extraction, chunking,
+`--test test`, then `--test down` commands above. The ingestion checkpoint passes 1243
+tests (837 unit / 406 integration), Ruff and strict mypy. Passage extraction, chunking,
 retrieval/citations, vectors and document-agent tools are later slices; this checkpoint
 makes no model/embedding call.
+
+Separate live storage checks on 2026-10-21 completed the four-original pilot and a repeat
+read in the isolated M3 database at revision 0006. All original hashes/sizes, identity and
+calendar evidence, immutable provenance, current pointers and role grants passed offline
+inspection; native table fingerprints stayed unchanged. Earlier partial failures remain
+audited with their successfully stored originals. The checks exposed and repaired valid
+omitted paragraph endings and a minutes dateline sharing its paragraph with opening prose.
+Validation still requires exact leading meeting dates, source URLs/titles and calendar
+publication evidence. The validator version is recorded separately on every receipt.
+
+Raw HTML bytes changed across these reads while extracted article text matched for each
+retained source. Storage therefore appended raw representations; this observation does
+not establish a policy correction or historical publisher vintage. Identical-byte replay
+behavior is covered deterministically. Originals remain private, with no pending/orphan
+files. These checks establish the bounded pilot's storage behavior; wider source coverage
+and passage retrieval remain separate reviewed work.
 
 ## Source package organization
 
