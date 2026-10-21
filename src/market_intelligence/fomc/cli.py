@@ -46,6 +46,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Mark an inspected interrupted run failed; stop its process first",
     )
     parser.add_argument(
+        "--max-requests",
+        type=int,
+        choices=range(1, 9),
+        default=8,
+        help="HTTP attempts including retries, shared by calendar/documents (1-8)",
+    )
+    parser.add_argument(
         "--artifact-root",
         type=Path,
         default=ARTIFACT_ROOT,
@@ -82,7 +89,11 @@ def execute(args: argparse.Namespace) -> int:
             else:
                 artifacts = ArtifactStore(private_artifact_root(args.artifact_root))
                 with httpx.Client(trust_env=False, follow_redirects=False) as http:
-                    result = ingest_pilot(store, FomcAcquisitionClient(http), artifacts)
+                    result = ingest_pilot(
+                        store,
+                        FomcAcquisitionClient(http, max_requests=args.max_requests),
+                        artifacts,
+                    )
                 report(dict(event="fomc_ingestion_completed", **asdict(result)))
         finally:
             engine.dispose()

@@ -92,3 +92,38 @@ def test_host_artifacts_stay_in_linked_checkout_ignored_data(
         cli.private_artifact_root(tmp_path.parent / "demo/data/fomc")
     with pytest.raises(ValueError):
         cli.private_artifact_root(tmp_path / "src/originals")
+
+
+@pytest.mark.parametrize("budget", ["0", "9", "-1", "invalid"])
+def test_request_budget_rejected_before_configuration(
+    budget: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configuration = MagicMock(side_effect=AssertionError("No configuration"))
+    monkeypatch.setattr(cli, "DatabaseSettings", configuration)
+    with pytest.raises(SystemExit):
+        main(["ingest-fomc", "--pilot", "--max-requests", budget])
+    configuration.assert_not_called()
+
+
+def test_request_budget_reaches_actual_acquisition_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key, value in dict(
+        POSTGRES_DB="market_intelligence_m3",
+        POSTGRES_HOST="db",
+        POSTGRES_PORT="5432",
+        POSTGRES_INGEST_USER="m3_ingest",
+        POSTGRES_INGEST_PASSWORD="synthetic-test-only",
+    ).items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(cli, "create_db_engine", MagicMock())
+    monkeypatch.setattr(cli, "FomcStore", MagicMock())
+    monkeypatch.setattr(cli, "private_artifact_root", lambda value: value)
+    acquisition = MagicMock()
+    monkeypatch.setattr(cli, "FomcAcquisitionClient", acquisition)
+
+    class StopAfterClient(Exception):
+        pass
+
+    monkeypatch.setattr(cli, "ingest_pilot", MagicMock(side_effect=StopAfterClient))
+    with pytest.raises(StopAfterClient):
+        main(["ingest-fomc", "--pilot", "--max-requests", "5"])
+    assert acquisition.call_args.kwargs["max_requests"] == 5
