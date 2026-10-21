@@ -17,7 +17,7 @@ def test_identity_and_separate_publication_evidence(spec: DocumentSpec) -> None:
     result = validate_document(fetched(spec), validate_calendar(calendar_body()))
     assert result.fetched.document == spec
     assert result.page_update_text == "Last Update: October 09, 2024"
-    assert result.validator_version == "fomc-identity-v2"
+    assert result.validator_version == "fomc-identity-v3"
     assert result.release_time_text == spec.release_time_text
 
 
@@ -143,3 +143,35 @@ def test_hidden_svg_cannot_close_visible_identity_paragraph() -> None:
     paragraphs = [n for n in parser.root.nodes() if n.tag == "p"]
     assert len(paragraphs) == 1 and paragraphs[0].complete
     assert paragraphs[0].text() == "visible continued"
+
+
+@pytest.mark.parametrize("index", [1, 3])
+@pytest.mark.parametrize("inline", [False, True])
+def test_minutes_dateline_shares_paragraph(index: int, inline: bool) -> None:
+    spec = PILOT_DOCUMENTS[index]
+    label = f"{spec.meeting_start:%B} {spec.meeting_start.day}-{spec.meeting_end.day}, 2024"
+    display = label.replace("-", "–")
+    content = f"<strong>{display}</strong><br>" if inline else display + " "
+    body = document_body(spec).replace(
+        f"<p>{label}</p>".encode(),
+        f"<p>{content}Synthetic opening prose in the same paragraph.</p>".encode(),
+    )
+    result = validate_document(fetched(spec, body), validate_calendar(calendar_body()))
+    assert result.meeting_label == display
+    assert result.publication_label == f"{spec.published_on:%B} {spec.published_on.day}, 2024"
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [
+        "<p>November 5-7, 2024 Opening prose mentions November 6-7, 2024.</p>",
+        "<p>November 6-7, 20240 Opening prose.</p>",
+        "<p>Opening prose mentions November 6-7, 2024.</p>",
+        "<p>November 6-7, 2024 Opening prose.</p><p>November 6-7, 2024 Second dateline.</p>",
+    ],
+)
+def test_minutes_dateline_remains_exact_leading_and_unambiguous(labels: str) -> None:
+    spec = PILOT_DOCUMENTS[3]
+    body = document_body(spec).replace(b"<p>November 6-7, 2024</p>", labels.encode())
+    with pytest.raises(FomcValidationError):
+        validate_document(fetched(spec, body), validate_calendar(calendar_body()))

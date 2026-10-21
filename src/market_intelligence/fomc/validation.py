@@ -11,7 +11,7 @@ from market_intelligence.fomc.catalog import PILOT_DOCUMENTS, pilot_document
 from market_intelligence.fomc.client import MAX_RESPONSE_BYTES, FetchedDocument
 from market_intelligence.fomc.models import CALENDAR_URL, ORIGIN, DocumentKind, DocumentSpec
 
-VALIDATOR_VERSION = "fomc-identity-v2"
+VALIDATOR_VERSION = "fomc-identity-v3"
 MONTHS = (
     "",
     "January",
@@ -372,9 +372,18 @@ def validate_document(fetched: FetchedDocument, calendar: CalendarEvidence) -> V
         if release != spec.release_time_text:
             raise FomcValidationError()
     else:
-        meeting = _label(
-            _one([node for node in paragraphs if _dash(node.text()) == _meeting(spec)])
+        # The meeting dateline may share a paragraph with the opening prose.
+        # Require the exact leading date and a whitespace/end boundary, never a
+        # matching date mentioned later in policy text or a longer date string.
+        expected_meeting = _meeting(spec)
+        dateline = _one(
+            [
+                node
+                for node in paragraphs
+                if re.match(re.escape(expected_meeting) + r"(?:\s|$)", _dash(node.text()))
+            ]
         )
+        meeting = dateline.text()[: len(expected_meeting)]
         if dict(calendar.minutes_dates).get(spec.document_id) != spec.published_on:
             raise FomcValidationError()
         published = (
