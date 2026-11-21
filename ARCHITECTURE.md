@@ -1352,5 +1352,30 @@ inspection of all eleven stored representations verified unchanged visible body 
 apart from documented whitespace/metadata/navigation handling, note bindings, equivalent
 per-document content hashes, distinct raw generations and lossless passage spans. This is
 bounded offline extraction evidence, not wider FOMC coverage or a retrieval quality claim.
-No processing table, new revision, deployment, endpoint or model was added. Exact additive
-processing DDL/current publication and then reader/retrieval contracts remain gated.
+Section 20 describes the offline storage and readiness contract. Passage retrieval,
+citation APIs, vectors and model use are later slices.
+
+
+## 20. FOMC passage publication
+
+Revision `0007` adds six append-only tables. A generation links one raw version to
+one parser configuration and its canonical blocks. Multiple chunker configurations
+can reuse the same generation. Each passage set has ordered passages and spans linked
+to exact blocks in that generation. Processing attempts record created, reused, stale
+or failed outcomes. The writer can select and insert, and the reader can only select.
+
+The processing command snapshots inputs and releases its connection before verified
+file reads and CPU work. Publication locks the same current-document row acquisition
+uses and checks the raw version. Complete output and its creation audit commit together
+per document. Reprocessing checks the entire output and its existing creation audit.
+A mismatch is reported as a conflict. The alternate-config path checks the existing
+parsed blocks before adding a new set. A failed write rolls back before recording
+its sanitized outcome in a separate transaction.
+
+Readiness is derived in one read-only snapshot from the current acquisition pointer,
+the exact parser and chunker configurations, and the committed creation audit. New raw
+bytes or new settings require a matching set. A same-raw receipt replay preserves
+readiness. Historical sets retain their original identity and provenance. The explicit
+manual commands process retained inputs or report readiness without a search endpoint.
+The guarded M3 processing service reads the private artifact volume with a read-only
+mount. Migration and persistent processing acceptance are separate deployment steps.

@@ -1124,8 +1124,8 @@ Deterministic tests use synthetic pages/HTTP, temporary artifact directories and
 guarded `db-test` / `market_intelligence_test`. Run the M3 `--test build`, `--test quality`,
 `--test test`, then `--test down` commands above. The ingestion checkpoint passes 1243
 tests (837 unit / 406 integration), Ruff and strict mypy. The newer offline processing
-checkpoint is described below; persistence, retrieval/citations, vectors and document-agent
-tools remain later slices. Neither checkpoint makes a model/embedding call.
+checkpoint is described below. Retrieval and citations, vectors and document-agent tools
+remain later slices. Neither checkpoint makes a model or embedding call.
 
 Separate live storage checks on 2026-10-21 completed the four-original pilot and a repeat
 read in the isolated M3 database at revision 0006. All original hashes/sizes, identity and
@@ -1149,8 +1149,8 @@ and passage retrieval remain separate reviewed work.
 `FetchedDocument` and validated `CalendarEvidence`; `fomc/chunking.py` exposes
 `chunk_document(parsed)`. Both are pure functions over already acquired data. They return
 typed in-memory results rather than fetching, writing files/database rows, or invoking a
-model. There is no processing CLI or search endpoint in this slice. Existing locked
-dependencies and the M3 test commands above suffice; no installation change is required.
+model. The processing CLI described below runs these same functions. Existing locked
+dependencies and the M3 test commands above suffice.
 
 The narrow statement/minutes adapter preserves ordered paragraphs, actual section
 headings, quote/list context, footnotes and source anchors. Header/share/sidebar content
@@ -1175,8 +1175,32 @@ verified complete non-whitespace body-character preservation after the documente
 metadata/navigation exclusions, note bindings, per-document content equivalence and
 exact nonoverlapping passage reconstruction. The four logical documents yield 297
 blocks and 97 passages, including retained auxiliary material. No new provider/model
-call, processing migration or persistent processing output was created. Exact processing
-schema/grants/publication and retrieval/citation readers remain separate reviewed slices.
+call was made during that extraction checkpoint. Passage search and citations follow
+the storage checkpoint.
+
+## Process stored FOMC documents
+
+Revision `0007` adds append-only PostgreSQL storage for parsed generations, blocks,
+passage sets, passages, source spans and processing attempts. Run these commands
+from the linked M3 worktree after installing its runtime image and applying the
+migration and grants to the isolated M3 database. Start the M3 database first.
+
+```powershell
+.venv\Scripts\python.exe scripts/m3.py fomc-process
+.venv\Scripts\python.exe scripts/m3.py fomc-process-status
+```
+
+The pilot verifies the retained original and calendar bytes, processes each current
+document offline and publishes that document's complete output in one transaction.
+A replay of identical output reuses the stored set and appends an attempt. A changed
+current original becomes pending until its own set is committed. Status uses the
+reader role and shows one result per pilot document with IDs, counts and safe error
+codes. A stale input, missing original or failed document results in a nonzero pilot
+exit. Earlier successful documents remain committed.
+
+Developers can test against the separate tmpfs PostgreSQL project with the existing
+M3 test commands. Stored originals stay in the private artifact volume, read-only to
+the processing service. Stored passage text stays in the isolated database.
 
 ## Source package organization
 

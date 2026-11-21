@@ -387,6 +387,20 @@ Auxiliary contact/link text remains inspectable and notes remain document-wide.
 This checkpoint passes 1285 tests (879 unit / 406 integration), Ruff and strict mypy.
 Offline network-disabled inspection of all eleven retained raw versions verifies
 visible body-character preservation, source-note bindings, per-document content hashes
-and lossless passage spans. No new source/model request or processing persistence occurs.
-Keep originals/previews private. Exact processing schema/grants/publication, retrieval,
-pgvector and document-agent tools remain separately reviewed work.
+and lossless passage spans. Keep originals/previews private. Retrieval, pgvector and
+document-agent tools remain separately reviewed work.
+
+
+Revision `0007` adds append-only FOMC processing generations, blocks, chunker sets,
+passages, spans and completed attempts. Preserve exact source lineage and complete
+passage reconstruction. Writers lock the current acquisition row only during short
+publication transactions. A set and its creation audit commit together. Replay verifies
+all rows and appends an attempt. The reader derives status from the current raw ID, the
+exact config pair and the creation audit in one read-only snapshot. New raw bytes stay
+pending until processed. Test writes stay in guarded synthetic PostgreSQL.
+
+The M3 launcher exposes `fomc-process` and `fomc-process-status`. The former uses
+writer credentials with a read-only originals mount. The latter uses reader
+credentials and omits the artifact mount. Apply the approved migration and grants
+to the M3 database before running either command. Keep persistent pilot acceptance
+separate from deterministic CI and preserve the original demo.
