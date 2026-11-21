@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
+from market_intelligence.db.fomc_processing_tables import PROCESSING_TABLE_NAMES
 from market_intelligence.db.fomc_store import FomcStore, FomcStoreError
 from market_intelligence.db.fomc_tables import (
     fomc_current as current,
@@ -44,7 +45,7 @@ def store(database_settings: DatabaseSettings, admin_engine: Engine) -> Iterator
             conn.execute(
                 sa.text(
                     "TRUNCATE fomc_current, fomc_fetch_receipts, "
-                    "fomc_raw_versions, fomc_ingestion_runs"
+                    "fomc_raw_versions, fomc_ingestion_runs, " + ", ".join(PROCESSING_TABLE_NAMES)
                 )
             )
 
