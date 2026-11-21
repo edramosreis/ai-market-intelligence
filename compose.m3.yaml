@@ -94,6 +94,23 @@ services:
       POSTGRES_INGEST_USER: m3_ingest
       POSTGRES_INGEST_PASSWORD: ${M3_INGEST_PASSWORD:?Run scripts/m3.py init}
 
+  process:
+    profiles: [tools]
+    image: ai-market-intelligence:m3
+    command: [process-fomc, --pilot]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: market_intelligence_m3
+      POSTGRES_INGEST_USER: m3_ingest
+      POSTGRES_INGEST_PASSWORD: ${M3_INGEST_PASSWORD:?Run scripts/m3.py init}
+    volumes:
+      - fomc_artifacts:/app/data/fomc:ro
+
   scheduler:
     profiles: [scheduler]
     image: ai-market-intelligence:m3

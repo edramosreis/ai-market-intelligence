@@ -84,6 +84,7 @@ def resolved_model(root: Path, values: dict[str, str], testing: bool) -> dict[st
                 "check": base | reader,
                 "migrate": base | admin | writer | reader,
                 "ingest": base | writer,
+                "process": base | writer,
                 "scheduler": base | writer | {"SCHEDULER_ENABLED": "false", "SCHEDULER_JOBS": ""},
             }
         )
@@ -102,6 +103,7 @@ def resolved_model(root: Path, values: dict[str, str], testing: bool) -> dict[st
         "migrate": ["init-db"],
         "check": ["check-db"],
         "ingest": ["ingest"],
+        "process": ["process-fomc", "--pilot"],
         "scheduler": ["schedule", "run"],
     }
     for service, environment in environments.items():
@@ -141,7 +143,7 @@ def resolved_model(root: Path, values: dict[str, str], testing: bool) -> dict[st
                     "volume": {},
                 }
             ]
-        if service == "ingest":
+        if service in {"ingest", "process"}:
             item["volumes"] = [
                 {
                     "type": "volume",
@@ -150,6 +152,8 @@ def resolved_model(root: Path, values: dict[str, str], testing: bool) -> dict[st
                     "volume": {},
                 }
             ]
+        if service == "process":
+            item["volumes"][0]["read_only"] = True
         if service == "db-test":
             item["tmpfs"] = ["/var/lib/postgresql"]
         model["services"][service] = item
@@ -422,6 +426,8 @@ def test_fomc_manual_operations_are_exact(
     [
         ["--test", "fomc-ingest"],
         ["--test", "fomc-status"],
+        ["--test", "fomc-process"],
+        ["--test", "fomc-process-status"],
         ["fomc-reconcile"],
         ["validate", "--run-id", "00000000-0000-0000-0000-000000000001"],
     ],
@@ -432,3 +438,41 @@ def test_fomc_runtime_option_misuse_refused_before_docker(
     with pytest.raises(SystemExit) as error:
         launcher.main(args)
     assert error.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [
+        ("fomc-process", ["run", "--rm", "--no-deps", "process"]),
+        (
+            "fomc-process-status",
+            ["run", "--rm", "--no-deps", "check", "process-fomc", "--status"],
+        ),
+    ],
+)
+def test_processing_commands_use_only_the_validated_service(
+    launcher: ModuleType,
+    linked_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    expected: list[str],
+) -> None:
+    values = configuration(linked_root, False)
+    model = resolved_model(linked_root, values, False)
+    launch = MagicMock(
+        side_effect=[
+            subprocess.CompletedProcess([], 0, json.dumps(model), ""),
+            subprocess.CompletedProcess([], 0),
+        ]
+    )
+    monkeypatch.setattr(launcher.subprocess, "run", launch)
+    assert launcher.run(linked_root, False, action) == 0
+    assert launch.call_args.args[0][-len(expected) :] == expected
+
+
+def test_processing_mount_requires_read_only(launcher: ModuleType, linked_root: Path) -> None:
+    values = configuration(linked_root, False)
+    model = resolved_model(linked_root, values, False)
+    model["services"]["process"]["volumes"][0].pop("read_only")
+    with pytest.raises(launcher.IsolationError, match="Unexpected mount"):
+        launcher.validate_model(model, linked_root, False, values)

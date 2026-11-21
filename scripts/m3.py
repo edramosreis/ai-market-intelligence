@@ -140,7 +140,7 @@ def expected_environment(service: str, values: Mapping[str, str], testing: bool)
         ("ADMIN", "INGEST", "READ")
         if service in {"tests", "migrate"}
         else ("INGEST",)
-        if service in {"ingest", "scheduler"}
+        if service in {"ingest", "process", "scheduler"}
         else ("READ",)
     )
     for role in roles:
@@ -188,7 +188,7 @@ def validate_model(
     expected_services = (
         {"db-test", "tests"}
         if testing
-        else {"db", "api", "migrate", "check", "ingest", "scheduler"}
+        else {"db", "api", "migrate", "check", "ingest", "process", "scheduler"}
     )
     require(set(services) == expected_services, "Unexpected services.")
     commands = {
@@ -196,6 +196,7 @@ def validate_model(
         "migrate": ["init-db"],
         "check": ["check-db"],
         "ingest": ["ingest"],
+        "process": ["process-fomc", "--pilot"],
         "scheduler": ["schedule", "run"],
     }
     for service, raw in services.items():
@@ -259,7 +260,7 @@ def validate_model(
                 }
             ]
         require(item.get("ports", []) == ports, "Ports are not the isolated localhost targets.")
-        mounts = (
+        mounts: list[dict[str, object]] = (
             []
             if service != "db"
             else [
@@ -271,7 +272,7 @@ def validate_model(
                 }
             ]
         )
-        if service == "ingest":
+        if service in {"ingest", "process"}:
             mounts = [
                 {
                     "type": "volume",
@@ -280,6 +281,8 @@ def validate_model(
                     "volume": {},
                 }
             ]
+        if service == "process":
+            mounts[0]["read_only"] = True
         require(item.get("volumes", []) == mounts, "Unexpected mount or demo volume.")
         require(
             item.get("tmpfs", []) == (["/var/lib/postgresql"] if service == "db-test" else []),
@@ -300,7 +303,7 @@ def check_ports(values: Mapping[str, str], service: str) -> None:
 
 def run(root: Path, testing: bool, action: str, run_id: UUID | None = None) -> int:
     require(
-        not testing or action not in {"fomc-ingest", "fomc-status", "fomc-reconcile"},
+        not testing or not action.startswith("fomc-"),
         "FOMC runtime commands cannot use test resources.",
     )
     require(
@@ -357,6 +360,15 @@ def run(root: Path, testing: bool, action: str, run_id: UUID | None = None) -> i
                 "check": ["run", "--rm", "check"],
                 "fomc-ingest": ["run", "--rm", "ingest", "ingest-fomc", "--pilot"],
                 "fomc-status": ["run", "--rm", "check", "ingest-fomc", "--status"],
+                "fomc-process": ["run", "--rm", "--no-deps", "process"],
+                "fomc-process-status": [
+                    "run",
+                    "--rm",
+                    "--no-deps",
+                    "check",
+                    "process-fomc",
+                    "--status",
+                ],
                 "fomc-reconcile": [
                     "run",
                     "--rm",
@@ -397,6 +409,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "fomc-ingest",
             "fomc-status",
             "fomc-reconcile",
+            "fomc-process",
+            "fomc-process-status",
         ),
     )
     parser.add_argument("--run-id", type=UUID, help="An inspected interrupted FOMC run")
