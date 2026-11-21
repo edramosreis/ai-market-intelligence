@@ -43,13 +43,14 @@ class SearchRequest:
     published_on: date | None = None
 
     def __post_init__(self) -> None:
-        if len(self.q) > 500 or any(category(char) == "Cc" for char in self.q):
+        query = self.q.strip()
+        if len(query) > 500 or any(category(char) == "Cc" for char in self.q):
             raise RetrievalError("invalid_parameters", 422)
-        if not self.q.strip():
+        if not query:
             raise RetrievalError("no_search_terms", 422)
         if type(self.limit) is not int or not 1 <= self.limit <= 5:
             raise RetrievalError("invalid_parameters", 422)
-        object.__setattr__(self, "q", self.q.strip())
+        object.__setattr__(self, "q", query)
 
 
 @dataclass(frozen=True)

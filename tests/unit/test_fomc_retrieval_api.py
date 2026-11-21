@@ -90,6 +90,7 @@ def citation(passage_id: str = ID, span_count: int = 1) -> Citation:
         "?q=rate&meeting_end=20240918",
         "?q=rate&source=http://example.test",
         "?q=a%00b",
+        "?q=%09rate",
         "?q=" + "x" * 501,
     ],
 )
@@ -103,6 +104,22 @@ def test_invalid_search_does_not_open_reader(
     assert response.json()["detail"] in {"invalid_parameters", "no_search_terms"}
     assert response.headers["cache-control"] == "no-store"
     reader.search.assert_not_called()
+
+
+def test_query_character_limit_applies_after_trimming(
+    client_and_reader: tuple[TestClient, MagicMock],
+) -> None:
+    client, reader = client_and_reader
+    reader.search.return_value = SearchResult(
+        results=[],
+        coverage=Coverage(catalog_documents=0, ready=0, not_collected=0, pending=0, failed=0),
+        status="no_documents_in_scope",
+        has_more=False,
+    )
+    query = "é" * 500
+    response = client.get(SEARCH, params={"q": f"  {query}  "})
+    assert response.status_code == 200
+    assert reader.search.call_args.args[0].q == query
 
 
 def test_search_budget_measures_actual_unicode_response_and_keeps_rank_prefix(
