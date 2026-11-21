@@ -90,8 +90,21 @@ def test_store_and_reader_preserve_exact_spans_reuse_and_config_versions(
         assert reader.status(parser, chunker)[0]["state"] == "not_collected"
         raw_id = collect_one(store, artifacts)
         assert reader.status(parser, chunker)[0]["state"] == "pending"
-        run = process_pilot(writer, artifacts)
+        before_commit: list[str] = []
+
+        def observe_before_commit(
+            conn: Any, cursor: Any, statement: str, parameters: Any, context: Any, many: bool
+        ) -> None:
+            if statement.startswith("INSERT INTO fomc_processing_attempts"):
+                before_commit.append(reader.status(parser, chunker)[0]["state"])
+
+        sa.event.listen(writer.engine, "after_cursor_execute", observe_before_commit)
+        try:
+            run = process_pilot(writer, artifacts)
+        finally:
+            sa.event.remove(writer.engine, "after_cursor_execute", observe_before_commit)
         result = run.documents[0]
+        assert before_commit == ["pending"]
         assert result.outcome == "created" and result.raw_version_id == raw_id
         assert result.block_count == 2 and result.passage_count == 1
         assert all(item.outcome == "not_collected" for item in run.documents[1:])
