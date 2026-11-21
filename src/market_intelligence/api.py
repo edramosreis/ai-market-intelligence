@@ -24,6 +24,8 @@ from market_intelligence.agent.runner import AgentRunner
 from market_intelligence.agent.tools import MarketTools
 from market_intelligence.config import AgentSettings, ApiSettings, DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
+from market_intelligence.fomc.citations import FomcQueries
+from market_intelligence.fomc.retrieval_routes import router as fomc_retrieval_router
 from market_intelligence.hyperliquid.queries import HyperliquidQueries
 from market_intelligence.hyperliquid.query_models import (
     FundingLatest,
@@ -164,6 +166,7 @@ def create_app(
         app.state.treasury_queries = TreasuryQueries(active_engine, api_settings, now)
         app.state.hyperliquid_queries = HyperliquidQueries(active_engine, api_settings, now)
         app.state.macro_queries = MacroQueries(active_engine, api_settings, now)
+        app.state.fomc_queries = FomcQueries(active_engine)
         active_client = model_client
         owns_client = False
         try:
@@ -199,6 +202,7 @@ def create_app(
 
     app = FastAPI(title="AI Market Intelligence", version="0.1.0", lifespan=lifespan)
     app.add_middleware(AgentBodyLimit)
+    app.include_router(fomc_retrieval_router)
 
     @app.exception_handler(AgentUnavailableError)
     async def agent_unavailable(request: Request, error: AgentUnavailableError) -> JSONResponse:
