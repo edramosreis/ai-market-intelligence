@@ -33,6 +33,13 @@ class ArtifactStore:
         return self.root / "sha256" / digest[:2] / (digest + ".html")
 
     def verify(self, digest: str, size: int) -> Path:
+        self.read_verified(digest, size)
+        return self.path(digest)
+
+    def read_verified(self, digest: str, size: int) -> bytes:
+        """Return the very bytes covered by the size and checksum check."""
+        if not 1 <= size <= MAX_RESPONSE_BYTES:
+            raise ArtifactError()
         target = self.path(digest)
         try:
             for part in (target, *target.parents):
@@ -46,7 +53,7 @@ class ArtifactStore:
                 raise ArtifactError()
         except OSError:
             raise ArtifactError() from None
-        return target
+        return content
 
     def put(self, body: bytes) -> Path:
         if not 1 <= len(body) <= MAX_RESPONSE_BYTES:

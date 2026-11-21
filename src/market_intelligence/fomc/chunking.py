@@ -38,8 +38,8 @@ class ChunkerConfig:
             raise ValueError("Invalid chunker configuration")
 
     @property
-    def config_hash(self) -> str:
-        return fingerprint(
+    def hash_arguments(self) -> tuple[object, ...]:
+        return (
             "fomc-chunker-config-v1",
             asdict(self),
             {
@@ -51,6 +51,10 @@ class ChunkerConfig:
                 "overlap": 0,
             },
         )
+
+    @property
+    def config_hash(self) -> str:
+        return fingerprint("fomc-chunker-config-v1", *self.hash_arguments[1:])
 
 
 DEFAULT_CHUNKER_CONFIG = ChunkerConfig()

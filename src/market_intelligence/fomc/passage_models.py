@@ -48,8 +48,8 @@ class ParserConfig:
             raise ValueError("Invalid parser bounds")
 
     @property
-    def config_hash(self) -> str:
-        return fingerprint(
+    def hash_arguments(self) -> tuple[object, ...]:
+        return (
             "fomc-parser-config-v1",
             asdict(self),
             {
@@ -59,6 +59,10 @@ class ParserConfig:
                 "whitespace": "inline-space-block-separator-v1",
             },
         )
+
+    @property
+    def config_hash(self) -> str:
+        return fingerprint("fomc-parser-config-v1", *self.hash_arguments[1:])
 
 
 class BlockKind(StrEnum):
