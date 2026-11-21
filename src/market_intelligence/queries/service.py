@@ -46,7 +46,7 @@ from market_intelligence.queries.models import (
 from market_intelligence.time_utils import as_utc, utc_now
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-EXPECTED_REVISION = "0006"
+EXPECTED_REVISION = "0007"
 
 
 class MarketQueries:

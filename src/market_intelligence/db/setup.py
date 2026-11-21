@@ -4,6 +4,7 @@ import psycopg
 from psycopg import sql
 
 from market_intelligence.config import DatabaseRole, DatabaseSettings
+from market_intelligence.db.fomc_processing_tables import PROCESSING_TABLE_NAMES
 
 TABLE_NAMES = (
     "data_sources",
@@ -30,6 +31,7 @@ TABLE_NAMES = (
     "fomc_raw_versions",
     "fomc_fetch_receipts",
     "fomc_current",
+    *PROCESSING_TABLE_NAMES,
 )
 
 
@@ -137,6 +139,7 @@ def grant_table_access(settings: DatabaseSettings) -> None:
                 "macro_version_footnotes",
                 "fomc_raw_versions",
                 "fomc_fetch_receipts",
+                *PROCESSING_TABLE_NAMES,
             ):
                 conn.execute(
                     sql.SQL("GRANT INSERT ON TABLE public.{} TO {}").format(
