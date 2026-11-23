@@ -79,6 +79,80 @@ def _check_rows(
         raise ProcessingError("output_conflict")
 
 
+def processing_status(
+    conn: Connection,
+    parser: ParserConfig,
+    chunker: ChunkerConfig,
+    document_ids: tuple[str, ...] = PILOT_IDS,
+) -> list[Row]:
+    """Read document readiness within the caller's existing snapshot."""
+    parser_hash, chunker_hash = parser.config_hash, chunker.config_hash
+    created = attempts.alias("created")
+    last = (
+        sa.select(attempts.c.outcome, attempts.c.error_code, attempts.c.finished_at)
+        .where(
+            attempts.c.raw_version_id == current.c.raw_version_id,
+            attempts.c.parser_config_sha256 == parser_hash,
+            attempts.c.chunker_config_sha256 == chunker_hash,
+            attempts.c.outcome != "stale",
+        )
+        .order_by(attempts.c.finished_at.desc(), attempts.c.attempt_id.desc())
+        .limit(1)
+        .lateral("latest")
+    )
+    ready = created.c.attempt_id.is_not(None)
+    rows = conn.execute(
+        sa.select(
+            documents.c.document_id,
+            documents.c.kind,
+            documents.c.meeting_end,
+            current.c.raw_version_id,
+            current.c.received_at,
+            sa.case(
+                (current.c.raw_version_id.is_(None), "not_collected"),
+                (ready, "ready"),
+                (last.c.outcome == "failed", "failed"),
+                else_="pending",
+            ).label("state"),
+            sa.case((ready, sets.c.passage_set_id)).label("passage_set_id"),
+            sa.case((ready, generations.c.block_count), else_=0).label("block_count"),
+            sa.case((ready, sets.c.passage_count), else_=0).label("passage_count"),
+            created.c.finished_at.label("ready_at"),
+            last.c.outcome.label("last_outcome"),
+            last.c.error_code.label("last_error_code"),
+            last.c.finished_at.label("last_finished_at"),
+        )
+        .select_from(
+            documents.outerjoin(current, documents.c.document_id == current.c.document_id)
+            .outerjoin(
+                generations,
+                sa.and_(
+                    generations.c.raw_version_id == current.c.raw_version_id,
+                    generations.c.parser_config_sha256 == parser_hash,
+                ),
+            )
+            .outerjoin(
+                sets,
+                sa.and_(
+                    sets.c.generation_id == generations.c.generation_id,
+                    sets.c.chunker_config_sha256 == chunker_hash,
+                ),
+            )
+            .outerjoin(
+                created,
+                sa.and_(
+                    created.c.passage_set_id == sets.c.passage_set_id,
+                    created.c.outcome == "created",
+                ),
+            )
+            .outerjoin(last, sa.true())
+        )
+        .where(documents.c.document_id.in_(document_ids))
+    ).mappings()
+    by_id = {row["document_id"]: dict(row) for row in rows}
+    return [by_id[document_id] for document_id in document_ids]
+
+
 class FomcProcessingStore:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
@@ -130,76 +204,12 @@ class FomcProcessingStore:
         return result
 
     def status(self, parser: ParserConfig, chunker: ChunkerConfig) -> list[Row]:
-        parser_hash, chunker_hash = parser.config_hash, chunker.config_hash
-        created = attempts.alias("created")
-        last = (
-            sa.select(attempts.c.outcome, attempts.c.error_code, attempts.c.finished_at)
-            .where(
-                attempts.c.raw_version_id == current.c.raw_version_id,
-                attempts.c.parser_config_sha256 == parser_hash,
-                attempts.c.chunker_config_sha256 == chunker_hash,
-                attempts.c.outcome != "stale",
-            )
-            .order_by(attempts.c.finished_at.desc(), attempts.c.attempt_id.desc())
-            .limit(1)
-            .lateral("latest")
-        )
-        ready = created.c.attempt_id.is_not(None)
         with (
             self.engine.connect().execution_options(isolation_level="REPEATABLE READ") as conn,
             conn.begin(),
         ):
             _read_only(conn)
-            rows = conn.execute(
-                sa.select(
-                    documents.c.document_id,
-                    documents.c.kind,
-                    documents.c.meeting_end,
-                    current.c.raw_version_id,
-                    current.c.received_at,
-                    sa.case(
-                        (current.c.raw_version_id.is_(None), "not_collected"),
-                        (ready, "ready"),
-                        (last.c.outcome == "failed", "failed"),
-                        else_="pending",
-                    ).label("state"),
-                    sa.case((ready, sets.c.passage_set_id)).label("passage_set_id"),
-                    sa.case((ready, generations.c.block_count), else_=0).label("block_count"),
-                    sa.case((ready, sets.c.passage_count), else_=0).label("passage_count"),
-                    created.c.finished_at.label("ready_at"),
-                    last.c.outcome.label("last_outcome"),
-                    last.c.error_code.label("last_error_code"),
-                    last.c.finished_at.label("last_finished_at"),
-                )
-                .select_from(
-                    documents.outerjoin(current, documents.c.document_id == current.c.document_id)
-                    .outerjoin(
-                        generations,
-                        sa.and_(
-                            generations.c.raw_version_id == current.c.raw_version_id,
-                            generations.c.parser_config_sha256 == parser_hash,
-                        ),
-                    )
-                    .outerjoin(
-                        sets,
-                        sa.and_(
-                            sets.c.generation_id == generations.c.generation_id,
-                            sets.c.chunker_config_sha256 == chunker_hash,
-                        ),
-                    )
-                    .outerjoin(
-                        created,
-                        sa.and_(
-                            created.c.passage_set_id == sets.c.passage_set_id,
-                            created.c.outcome == "created",
-                        ),
-                    )
-                    .outerjoin(last, sa.true())
-                )
-                .where(documents.c.document_id.in_(PILOT_IDS))
-            ).mappings()
-            by_id = {row["document_id"]: dict(row) for row in rows}
-        return [by_id[document_id] for document_id in PILOT_IDS]
+            return processing_status(conn, parser, chunker)
 
     @staticmethod
     def _lock_current(conn: Connection, source: ProcessingInput) -> bool:

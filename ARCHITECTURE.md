@@ -1229,7 +1229,8 @@ use only M3 resources. Runtime database initialization and API startup are indiv
 opt-ins, not automatic setup. Scheduler/agent stay fixed off with no model keys;
 no development-volume deletion or arbitrary command passthrough is exposed. Existing
 migration head on this feature is 0006. FOMC originals/provenance are described below;
-offline parsing/chunking is described in section 19; persistence, retrieval, vectors and
+offline parsing/chunking is described in section 19, publication in section 20, and
+retrieval in section 21. Vectors and
 research-model tools remain later components.
 
 ## 18. Fixed FOMC originals and acquisition provenance
@@ -1309,8 +1310,8 @@ current pointers, grants and unchanged native fingerprints passed inspection. Ea
 partial failures remain audited. Raw bytes varied while per-source article text matched;
 retain raw versions without inferring policy corrections. Identical-byte replay remains
 deterministically tested. Source expansion requires a separate reviewed collection scope.
-Offline passage extraction is described in section 19. Processing persistence, search,
-pgvector, embeddings and model tools remain later slices.
+Sections 19–21 describe extraction, publication and passage search. Embeddings,
+pgvector and document-agent tools remain separate slices.
 
 
 ## 19. Offline FOMC processing generations and passage spans
@@ -1352,8 +1353,7 @@ inspection of all eleven stored representations verified unchanged visible body 
 apart from documented whitespace/metadata/navigation handling, note bindings, equivalent
 per-document content hashes, distinct raw generations and lossless passage spans. This is
 bounded offline extraction evidence, not wider FOMC coverage or a retrieval quality claim.
-Section 20 describes the offline storage and readiness contract. Passage retrieval,
-citation APIs, vectors and model use are later slices.
+Sections 20 and 21 describe publication, readiness, and the citation API.
 
 
 ## 20. FOMC passage publication
@@ -1376,6 +1376,37 @@ Readiness is derived in one read-only snapshot from the current acquisition poin
 the exact parser and chunker configurations, and the committed creation audit. New raw
 bytes or new settings require a matching set. A same-raw receipt replay preserves
 readiness. Historical sets retain their original identity and provenance. The explicit
-manual commands process retained inputs or report readiness without a search endpoint.
+manual commands process retained inputs or report readiness.
 The guarded M3 processing service reads the private artifact volume with a read-only
 mount. Migration and persistent processing acceptance are separate deployment steps.
+
+## 21. FOMC lexical passage search and citations
+
+`fomc/retrieval.py` filters the fixed pilot catalog and ranks current published
+paragraphs, quotes and list items with PostgreSQL English full-text search.
+`plainto_tsquery` requires all normalized terms, and `ts_rank_cd` plus a
+bytewise passage ID tie-breaker orders results. The bounded pilot computes vectors
+from passage body at query time. It uses revision `0007`, existing grants and
+no index or extension. Dates filter separately by meeting end and publication.
+
+The search route reuses the processing-status query for coverage and requires the
+current raw ID, exact supported parser/chunker hashes and a committed creation
+audit. Coverage and rank rows come from the same SELECT-only, REPEATABLE READ
+snapshot. A pending current version has no historical fallback. The connection
+guard checks the database and reader role. Direct inspection by ID also resolves
+published historical sets from the pilot and reports their current status.
+
+`fomc/citations.py` resolves the exact stored body, first receipt for the raw
+version and provenance chain through the processing generation and set. Statement
+publication evidence comes from that document receipt. For minutes it comes from
+the linked same-run calendar receipt. Meeting and publication dates stay distinct
+from the local receipt instant. A nullable fragment contains only an actual unique
+anchor at the first span's start. Span offsets use half-open Unicode code points in
+canonical blocks. Direct inspection paginates detailed span coordinates.
+
+The HTTP boundary returns at most 24 KiB of serialized UTF-8 JSON and marks
+result or span truncation without clipping passage text. It returns controlled
+invalid, missing and unavailable errors and sets `Cache-Control: no-store`.
+Retrieved source text is evidence. The existing native reader and model tools
+remain independent. Wider corpus, index, embeddings and answer behavior each
+require their own review.

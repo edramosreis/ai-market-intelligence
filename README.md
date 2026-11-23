@@ -8,7 +8,8 @@ Hyperliquid BTC perpetual funding and forward open-interest receipts, and direct
 monthly macro data. Native readers serve exact values, coverage and provenance through
 HTTP and ten fixed agent tools. Six optional scheduled jobs wrap the same ingestion
 commands. Deterministic tests and separately inspected live checks verify the local slice;
-document retrieval/RAG, other markets and public deployment remain future work.
+Milestone 3 adds a pilot for stored FOMC documents and lexical passage search. Document Q&A,
+other markets and public deployment remain future work.
 
 See [Milestone 2 closeout](#milestone-2-closeout) for the demonstrated scope. The stored-data
 HTTP examples below work with Swagger or a terminal and require no private helpers.
@@ -1175,8 +1176,7 @@ verified complete non-whitespace body-character preservation after the documente
 metadata/navigation exclusions, note bindings, per-document content equivalence and
 exact nonoverlapping passage reconstruction. The four logical documents yield 297
 blocks and 97 passages, including retained auxiliary material. No new provider/model
-call was made during that extraction checkpoint. Passage search and citations follow
-the storage checkpoint.
+call was made during that extraction checkpoint.
 
 ## Process stored FOMC documents
 
@@ -1201,6 +1201,40 @@ exit. Earlier successful documents remain committed.
 Developers can test against the separate tmpfs PostgreSQL project with the existing
 M3 test commands. Stored originals stay in the private artifact volume, read-only to
 the processing service. Stored passage text stays in the isolated database.
+
+## Search stored FOMC passages
+
+The isolated M3 API searches the four pilot documents using existing revision `0007`
+and the database reader. After the reviewed M3 runtime is deployed and the retained
+documents are processed, use the M3 API at `http://127.0.0.1:8001`.
+
+```powershell
+$fomc = 'http://127.0.0.1:8001/v1/fomc/passages'
+$search = Invoke-RestMethod "$fomc/search?q=target%20range&kind=statement&meeting_end=2024-09-18"
+$search.results
+$passageId = $search.results[0].citation.citation_id
+Invoke-RestMethod "$fomc/$passageId"
+```
+
+When results are present, use a returned `citation_id`, which equals the passage ID. Search
+requires `q` with at most 500 characters and supports optional exact `kind`
+(`statement` or `minutes`), `meeting_end` and `published_on` filters. Dates use
+`YYYY-MM-DD`. The result limit is 1–5, default 5. English word normalization
+requires all surviving terms to match. Scores rank text matches within a query.
+Coverage counts scoped documents that are ready, pending, failed or uncollected.
+An empty result distinguishes an empty scope, an unready corpus and no lexical
+match. A no-match result alone cannot establish what the Fed discussed.
+
+Each hit includes the full passage and a citation with exact source/version
+identity, the official URL, separate meeting and publication dates, the local
+receipt time and stored span coordinates. Use inspection to page the span map with
+`span_start` and `next_span_start`. The ID can also resolve previously published
+passages and reports whether they are current. Both routes cap the UTF-8 JSON body
+at 24 KiB and keep quoted text intact. These reads make no provider or model calls.
+
+Run the synthetic PostgreSQL verification through the M3 test commands above.
+Verification against the retained documents in the persistent M3 API is a separate
+acceptance step.
 
 ## Source package organization
 
