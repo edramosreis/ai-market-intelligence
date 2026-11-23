@@ -12,6 +12,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from market_intelligence.fomc.catalog import ADDITIONAL_BATCHES
+
 
 @pytest.fixture
 def launcher() -> ModuleType:
@@ -430,6 +432,9 @@ def test_fomc_manual_operations_are_exact(
         ["--test", "fomc-process-status"],
         ["fomc-reconcile"],
         ["validate", "--run-id", "00000000-0000-0000-0000-000000000001"],
+        ["fomc-status", "--batch", "2024-apr-may-dec"],
+        ["fomc-process", "--batch", "2025"],
+        ["--test", "fomc-ingest", "--batch", "2024-apr-may-dec"],
     ],
 )
 def test_fomc_runtime_option_misuse_refused_before_docker(
@@ -441,12 +446,23 @@ def test_fomc_runtime_option_misuse_refused_before_docker(
 
 
 @pytest.mark.parametrize(
-    ("action", "expected"),
+    ("action", "expected", "batch"),
     [
-        ("fomc-process", ["run", "--rm", "--no-deps", "process"]),
+        ("fomc-process", ["run", "--rm", "--no-deps", "process"], None),
         (
             "fomc-process-status",
             ["run", "--rm", "--no-deps", "check", "process-fomc", "--status"],
+            None,
+        ),
+        (
+            "fomc-process",
+            ["run", "--rm", "--no-deps", "process", "process-fomc", "--batch", "2024-apr-may-dec"],
+            "2024-apr-may-dec",
+        ),
+        (
+            "fomc-ingest",
+            ["run", "--rm", "ingest", "ingest-fomc", "--batch", "2024-jan-mar"],
+            "2024-jan-mar",
         ),
     ],
 )
@@ -456,6 +472,7 @@ def test_processing_commands_use_only_the_validated_service(
     monkeypatch: pytest.MonkeyPatch,
     action: str,
     expected: list[str],
+    batch: str | None,
 ) -> None:
     values = configuration(linked_root, False)
     model = resolved_model(linked_root, values, False)
@@ -466,7 +483,8 @@ def test_processing_commands_use_only_the_validated_service(
         ]
     )
     monkeypatch.setattr(launcher.subprocess, "run", launch)
-    assert launcher.run(linked_root, False, action) == 0
+    assert set(launcher.FOMC_BATCHES) == set(ADDITIONAL_BATCHES)
+    assert launcher.run(linked_root, False, action, batch=batch) == 0
     assert launch.call_args.args[0][-len(expected) :] == expected
 
 
