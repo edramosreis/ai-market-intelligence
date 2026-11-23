@@ -13,7 +13,7 @@ from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.fomc_tables import TABLES, fomc_documents, fomc_ingestion_runs
 from market_intelligence.db.tables import candles, metadata
-from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
+from market_intelligence.fomc.catalog import ADDITIONAL_BATCHES, CATALOG_DOCUMENTS, PILOT_DOCUMENTS
 from tests.integration.test_schema import candle_values
 
 pytestmark = pytest.mark.integration
@@ -41,8 +41,57 @@ def test_catalog_and_populated_0005_upgrade_preserve_native_tables(connection: C
         table.name: connection.execute(sa.select(table)).mappings().all() for table in native
     } == before
     rows = connection.execute(sa.select(fomc_documents)).mappings().all()
-    assert {row["document_id"] for row in rows} == {d.document_id for d in PILOT_DOCUMENTS}
+    assert {row["document_id"]: dict(row) for row in rows} == {
+        spec.document_id: dict(
+            document_id=spec.document_id,
+            kind=spec.kind,
+            meeting_start=spec.meeting_start,
+            meeting_end=spec.meeting_end,
+            published_on=spec.published_on,
+            publication_precision=spec.publication_precision,
+            official_url=spec.url,
+            publication_evidence_url=spec.publication_evidence_url,
+            explicit_release_time_text=spec.release_time_text,
+        )
+        for spec in CATALOG_DOCUMENTS
+    }
     command.check(config)
+
+
+def test_catalog_upgrade_preserves_old_rows_and_refuses_loss_of_batch_audit(
+    connection: Connection,
+) -> None:
+    config = migration_config()
+    config.attributes["connection"] = connection
+    command.downgrade(config, "0007")
+    before = connection.execute(sa.select(fomc_documents)).mappings().all()
+    original_run = run_values() | {
+        "status": "failed",
+        "finished_at": datetime(2026, 10, 20, tzinfo=UTC),
+        "error_code": "interrupted",
+    }
+    connection.execute(fomc_ingestion_runs.insert().values(original_run))
+    command.upgrade(config, "head")
+    rows = connection.execute(sa.select(fomc_documents)).mappings().all()
+    assert len(before) == 4 and len(rows) == 16
+    assert all(row in rows for row in before)
+    assert dict(
+        connection.execute(sa.select(fomc_ingestion_runs)).mappings().one()
+    ) == original_run | {
+        "documents_completed": 0,
+        "http_attempts": 0,
+        "wire_bytes": 0,
+        "entity_bytes": 0,
+    }
+    added = ADDITIONAL_BATCHES["2024-apr-may-dec"]
+    connection.execute(
+        fomc_ingestion_runs.insert().values(
+            original_run | {"run_id": uuid4(), "requested_ids": [doc.document_id for doc in added]}
+        )
+    )
+    with pytest.raises(DBAPIError, match="referenced by audits"), connection.begin_nested():
+        command.downgrade(config, "0007")
+    assert connection.scalar(sa.select(sa.func.count()).select_from(fomc_documents)) == 16
 
 
 def test_only_one_durable_running_command(connection: Connection) -> None:
