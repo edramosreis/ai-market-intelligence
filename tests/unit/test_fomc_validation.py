@@ -2,8 +2,9 @@ from dataclasses import replace
 
 import pytest
 
-from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
+from market_intelligence.fomc.catalog import ADDITIONAL_BATCHES, PILOT_DOCUMENTS, meeting_documents
 from market_intelligence.fomc.models import DocumentSpec
+from market_intelligence.fomc.parsing import parse_document
 from market_intelligence.fomc.validation import (
     FomcValidationError,
     validate_calendar,
@@ -62,6 +63,32 @@ def test_calendar_dates_and_cross_links_are_required() -> None:
     ]:
         with pytest.raises(FomcValidationError):
             validate_calendar(raw.replace(old, new))
+
+
+def test_selected_calendar_and_minutes_keep_cross_month_and_next_year_identity() -> None:
+    batch = ADDITIONAL_BATCHES["2024-apr-may-dec"]
+    raw = calendar_body(batch)
+    evidence = validate_calendar(raw, documents=batch)
+    april, december = batch[1], batch[3]
+    assert dict(evidence.minutes_dates) == {
+        april.document_id: april.published_on,
+        december.document_id: december.published_on,
+    }
+    assert evidence.validator_version == "fomc-identity-v4"
+    cross_month = validate_document(fetched(april), evidence)
+    assert cross_month.meeting_label == "April 30-May 1, 2024"
+    assert cross_month.validator_version == "fomc-identity-v4"
+    assert "Synthetic policy text" in parse_document(fetched(april), evidence).blocks[0].text
+    assert validate_document(fetched(december), evidence).publication_label == "January 8, 2025"
+    assert validate_calendar(raw, documents=meeting_documents(april)).minutes_dates == (
+        (april.document_id, april.published_on),
+    )
+    for old, new in [
+        (b"Apr/May 30-1", b"Apr/May 30-10"),
+        (b"January 08, 2025", b"January 08, 2024"),
+    ]:
+        with pytest.raises(FomcValidationError):
+            validate_calendar(raw.replace(old, new), documents=batch)
 
 
 def test_minutes_cannot_use_page_update_as_publication_evidence() -> None:

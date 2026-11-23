@@ -7,11 +7,12 @@ from datetime import date
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 
-from market_intelligence.fomc.catalog import PILOT_DOCUMENTS, pilot_document
+from market_intelligence.fomc.catalog import PILOT_DOCUMENTS, PILOT_IDS, catalog_document
 from market_intelligence.fomc.client import MAX_RESPONSE_BYTES, FetchedDocument
 from market_intelligence.fomc.models import CALENDAR_URL, ORIGIN, DocumentKind, DocumentSpec
 
 VALIDATOR_VERSION = "fomc-identity-v3"
+EXPANDED_VALIDATOR_VERSION = "fomc-identity-v4"
 MONTHS = (
     "",
     "January",
@@ -247,9 +248,14 @@ def _date(value: str) -> date:
 
 
 def _meeting(spec: DocumentSpec, *, year: bool = True) -> str:
-    if spec.meeting_start.month != spec.meeting_end.month:
-        raise FomcValidationError()
-    result = f"{MONTHS[spec.meeting_start.month]} {spec.meeting_start.day}-{spec.meeting_end.day}"
+    start, end = spec.meeting_start, spec.meeting_end
+    first_month, last_month = MONTHS[start.month], MONTHS[end.month]
+    if start.month == end.month:
+        result = f"{first_month} {start.day}-{end.day}"
+    elif year:
+        result = f"{first_month} {start.day}-{last_month} {end.day}"
+    else:
+        result = f"{first_month[:3]}/{last_month[:3]} {start.day}-{end.day}"
     return result + (f", {spec.meeting_end.year}" if year else "")
 
 
@@ -257,6 +263,7 @@ def _meeting(spec: DocumentSpec, *, year: bool = True) -> str:
 class CalendarEvidence:
     raw_sha256: str
     minutes_dates: tuple[tuple[str, date], ...]
+    validator_version: str = VALIDATOR_VERSION
 
 
 def validate_media_type(content_type: str) -> None:
@@ -267,7 +274,25 @@ def validate_media_type(content_type: str) -> None:
         raise FomcValidationError()
 
 
-def validate_calendar(body: bytes, content_type: str = "text/html") -> CalendarEvidence:
+def validate_calendar(
+    body: bytes,
+    content_type: str = "text/html",
+    *,
+    documents: tuple[DocumentSpec, ...] = PILOT_DOCUMENTS,
+) -> CalendarEvidence:
+    if len(documents) not in {2, 4} or len(set(documents)) != len(documents):
+        raise FomcValidationError()
+    for spec in documents:
+        if catalog_document(spec.document_id) != spec:
+            raise FomcValidationError()
+    statements = {
+        spec.meeting_end: spec for spec in documents if spec.kind == DocumentKind.STATEMENT
+    }
+    minutes_specs = {
+        spec.meeting_end: spec for spec in documents if spec.kind == DocumentKind.MINUTES
+    }
+    if statements.keys() != minutes_specs.keys():
+        raise FomcValidationError()
     validate_media_type(content_type)
     _, article, _ = _page(body, CALENDAR_URL)
     rows = [
@@ -276,12 +301,8 @@ def validate_calendar(body: bytes, content_type: str = "text/html") -> CalendarE
         if "fomc-meeting" in (node.attrs.get("class") or "").split()
     ]
     result = []
-    for minutes in (spec for spec in PILOT_DOCUMENTS if spec.kind == DocumentKind.MINUTES):
-        statement = next(
-            spec
-            for spec in PILOT_DOCUMENTS
-            if spec.kind == DocumentKind.STATEMENT and spec.meeting_end == minutes.meeting_end
-        )
+    for meeting_end, minutes in minutes_specs.items():
+        statement = statements[meeting_end]
         matching = []
         for row in rows:
             links = [
@@ -294,7 +315,8 @@ def validate_calendar(body: bytes, content_type: str = "text/html") -> CalendarE
                     raise FomcValidationError()
                 matching.append(row)
         row = _one(matching)
-        if not _dash(row.text()).startswith(_meeting(minutes, year=False)):
+        label = re.escape(_meeting(minutes, year=False))
+        if not re.match(label + r"(?:\s|\*|$)", _dash(row.text())):
             raise FomcValidationError()
         section = _one(
             [
@@ -307,7 +329,12 @@ def validate_calendar(body: bytes, content_type: str = "text/html") -> CalendarE
         if len(labels) != 1 or _date(labels[0]) != minutes.published_on:
             raise FomcValidationError()
         result.append((minutes.document_id, _date(labels[0])))
-    return CalendarEvidence(hashlib.sha256(body).hexdigest(), tuple(result))
+    version = (
+        VALIDATOR_VERSION
+        if all(spec.document_id in PILOT_IDS for spec in documents)
+        else EXPANDED_VALIDATOR_VERSION
+    )
+    return CalendarEvidence(hashlib.sha256(body).hexdigest(), tuple(result), version)
 
 
 @dataclass(frozen=True)
@@ -324,7 +351,7 @@ class ValidatedDocument:
 
 def validate_document(fetched: FetchedDocument, calendar: CalendarEvidence) -> ValidatedDocument:
     spec = fetched.document
-    if pilot_document(spec.document_id) != spec:
+    if catalog_document(spec.document_id) != spec:
         raise FomcValidationError()
     validate_media_type(fetched.content_type)
     head, article, nodes = _page(fetched.body, spec.url)
@@ -392,5 +419,12 @@ def validate_document(fetched: FetchedDocument, calendar: CalendarEvidence) -> V
     updates = [node for node in nodes if node.attrs.get("id") == "lastUpdate"]
     update = _label(_one(updates)) if updates else None
     return ValidatedDocument(
-        fetched, title, meeting, published, release, update, calendar.raw_sha256
+        fetched,
+        title,
+        meeting,
+        published,
+        release,
+        update,
+        calendar.raw_sha256,
+        VALIDATOR_VERSION if spec.document_id in PILOT_IDS else EXPANDED_VALIDATOR_VERSION,
     )
