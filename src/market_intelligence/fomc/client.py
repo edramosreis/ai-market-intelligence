@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 
 import httpx
 
-from market_intelligence.fomc.catalog import pilot_document
+from market_intelligence.fomc.catalog import catalog_document
 from market_intelligence.fomc.models import CALENDAR_URL, DocumentSpec, identity
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -214,7 +214,7 @@ class FomcAcquisitionClient:
         return bytes(body), encoded_size, encoding
 
     def fetch(self, document_id: str) -> FetchedDocument:
-        document = pilot_document(document_id)  # No URL input or implicit discovery.
+        document = catalog_document(document_id)  # No URL input or implicit discovery.
         if self._halted:
             raise AcquisitionError(AcquisitionErrorCode.CLIENT_HALTED)
         try:

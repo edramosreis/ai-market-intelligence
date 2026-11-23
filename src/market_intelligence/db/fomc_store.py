@@ -24,12 +24,11 @@ from market_intelligence.db.fomc_tables import (
     fomc_raw_versions as versions,
 )
 from market_intelligence.fomc.artifacts import ArtifactStore
-from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
+from market_intelligence.fomc.catalog import BATCHES, CATALOG_DOCUMENTS
 from market_intelligence.fomc.client import FetchedCalendar, FetchedDocument
 from market_intelligence.fomc.isolation import require_fomc_database
 from market_intelligence.fomc.models import CALENDAR_URL
 from market_intelligence.fomc.validation import (
-    VALIDATOR_VERSION,
     CalendarEvidence,
     ValidatedDocument,
 )
@@ -49,14 +48,17 @@ class FomcStore:
         require_fomc_database(engine.url)
         self.engine = engine
 
-    def reserve(self, at: datetime) -> UUID:
+    def reserve(self, at: datetime, *, batch: str = "pilot") -> UUID:
+        selection = BATCHES.get(batch)
+        if selection is None:
+            raise FomcStoreError("catalog_mismatch")
         run_id = uuid4()
         with self.engine.begin() as conn:
             conn.execute(sa.text("SELECT pg_advisory_xact_lock(:key)"), {"key": LOCK})
             if conn.execute(sa.select(runs.c.run_id).where(runs.c.status == "running")).first():
                 raise FomcStoreError("running_command")
             catalog = conn.execute(sa.select(documents)).mappings().all()
-            expected = {d.document_id: d for d in PILOT_DOCUMENTS}
+            expected = {d.document_id: d for d in CATALOG_DOCUMENTS}
             if set(row["document_id"] for row in catalog) != set(expected):
                 raise FomcStoreError("catalog_mismatch")
             for row in catalog:
@@ -80,14 +82,14 @@ class FomcStore:
                     run_id=run_id,
                     started_at=as_utc(at),
                     status="running",
-                    requested_ids=list(expected),
+                    requested_ids=[spec.document_id for spec in selection],
                 )
             )
         return run_id
 
     @staticmethod
     def _receipt(
-        fetched: FetchedCalendar | FetchedDocument, run_id: UUID, url: str
+        fetched: FetchedCalendar | FetchedDocument, run_id: UUID, url: str, validator_version: str
     ) -> dict[str, Any]:
         return dict(
             receipt_id=fetched.receipt_id,
@@ -104,7 +106,7 @@ class FomcStore:
             received_at=fetched.received_at,
             etag=fetched.etag,
             last_modified=fetched.last_modified,
-            validator_version=VALIDATOR_VERSION,
+            validator_version=validator_version,
         )
 
     def record_calendar(
@@ -122,7 +124,7 @@ class FomcStore:
             self._running(conn, run_id)
             conn.execute(
                 receipts.insert().values(
-                    **self._receipt(fetched, run_id, CALENDAR_URL),
+                    **self._receipt(fetched, run_id, CALENDAR_URL, evidence.validator_version),
                     resource_kind="calendar",
                     verified_title="FOMC meeting calendars",
                 )
@@ -130,7 +132,7 @@ class FomcStore:
             conn.execute(runs.update().where(runs.c.run_id == run_id).values(**stats))
 
     @staticmethod
-    def _running(conn: sa.Connection, run_id: UUID) -> None:
+    def _running(conn: sa.Connection, run_id: UUID) -> sa.engine.RowMapping:
         row = (
             conn.execute(sa.select(runs).where(runs.c.run_id == run_id).with_for_update())
             .mappings()
@@ -138,6 +140,7 @@ class FomcStore:
         )
         if row is None or row["status"] != "running":
             raise FomcStoreError("run_not_running")
+        return row
 
     def record_document(
         self,
@@ -151,7 +154,9 @@ class FomcStore:
         artifacts.verify(fetched.raw_sha256, len(fetched.body))
         doc = fetched.document.document_id
         with self.engine.begin() as conn:
-            self._running(conn, run_id)
+            run = self._running(conn, run_id)
+            if doc not in run["requested_ids"]:
+                raise FomcStoreError("document_outside_batch")
             calendar = (
                 conn.execute(
                     sa.select(receipts).where(
@@ -206,7 +211,9 @@ class FomcStore:
             )
             conn.execute(
                 receipts.insert().values(
-                    **self._receipt(fetched, run_id, fetched.document.url),
+                    **self._receipt(
+                        fetched, run_id, fetched.document.url, validated.validator_version
+                    ),
                     resource_kind="document",
                     document_id=doc,
                     raw_version_id=fetched.raw_version_id,
@@ -241,7 +248,15 @@ class FomcStore:
         self, run_id: UUID, at: datetime, stats: dict[str, int], error: str | None = None
     ) -> None:
         with self.engine.begin() as conn:
-            self._running(conn, run_id)
+            run = self._running(conn, run_id)
+            if error is None:
+                received = conn.scalars(
+                    sa.select(receipts.c.document_id).where(
+                        receipts.c.run_id == run_id, receipts.c.resource_kind == "document"
+                    )
+                ).all()
+                if sorted(received) != sorted(run["requested_ids"]):
+                    raise FomcStoreError("batch_incomplete")
             conn.execute(
                 runs.update()
                 .where(runs.c.run_id == run_id)

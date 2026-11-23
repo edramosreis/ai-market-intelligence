@@ -14,9 +14,10 @@ from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.fomc_store import FomcStore, FomcStoreError
 from market_intelligence.fomc.artifacts import ArtifactStore
+from market_intelligence.fomc.catalog import ADDITIONAL_BATCHES
 from market_intelligence.fomc.client import FomcAcquisitionClient
 from market_intelligence.fomc.isolation import require_fomc_database
-from market_intelligence.fomc.service import FomcIngestionError, ingest_pilot
+from market_intelligence.fomc.service import FomcIngestionError, ingest_batch, ingest_pilot
 from market_intelligence.time_utils import utc_now
 
 ARTIFACT_ROOT = Path("/app/data/fomc")
@@ -36,6 +37,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     operation = parser.add_mutually_exclusive_group(required=True)
     operation.add_argument(
         "--pilot", action="store_true", help="Acquire only the four reviewed originals"
+    )
+    operation.add_argument(
+        "--batch", choices=ADDITIONAL_BATCHES, help="Acquire one reviewed 2024 batch"
     )
     operation.add_argument(
         "--status", action="store_true", help="Read the latest twenty run audits"
@@ -72,8 +76,8 @@ def report(value: dict[str, object]) -> None:
 
 def execute(args: argparse.Namespace) -> int:
     try:
-        if not args.pilot and args.artifact_root != ARTIFACT_ROOT:
-            raise ValueError("Artifact root applies only to the pilot")
+        if not (args.pilot or args.batch) and args.artifact_root != ARTIFACT_ROOT:
+            raise ValueError("Artifact root applies only to acquisition")
         # FOMC never loads the original demo dotenv file implicitly.
         settings = DatabaseSettings(_env_file=None)  # type: ignore[call-arg]
         role = DatabaseRole.READ if args.status else DatabaseRole.INGEST
@@ -89,10 +93,11 @@ def execute(args: argparse.Namespace) -> int:
             else:
                 artifacts = ArtifactStore(private_artifact_root(args.artifact_root))
                 with httpx.Client(trust_env=False, follow_redirects=False) as http:
-                    result = ingest_pilot(
-                        store,
-                        FomcAcquisitionClient(http, max_requests=args.max_requests),
-                        artifacts,
+                    client = FomcAcquisitionClient(http, max_requests=args.max_requests)
+                    result = (
+                        ingest_pilot(store, client, artifacts)
+                        if args.pilot
+                        else ingest_batch(store, client, artifacts, args.batch)
                     )
                 report(dict(event="fomc_ingestion_completed", **asdict(result)))
         finally:

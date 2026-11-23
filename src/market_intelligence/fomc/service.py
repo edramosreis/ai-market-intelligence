@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from market_intelligence.db.fomc_store import FomcStore, FomcStoreError
 from market_intelligence.fomc.artifacts import ArtifactError, ArtifactStore
-from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
+from market_intelligence.fomc.catalog import BATCHES
 from market_intelligence.fomc.client import AcquisitionError, FomcAcquisitionClient
 from market_intelligence.fomc.validation import (
     FomcValidationError,
@@ -50,6 +50,20 @@ def ingest_pilot(
     *,
     now: Callable[[], datetime] = utc_now,
 ) -> IngestionReport:
+    return ingest_batch(store, client, artifacts, "pilot", now=now)
+
+
+def ingest_batch(
+    store: FomcStore,
+    client: FomcAcquisitionClient,
+    artifacts: ArtifactStore,
+    batch: str,
+    *,
+    now: Callable[[], datetime] = utc_now,
+) -> IngestionReport:
+    selection = BATCHES.get(batch)
+    if selection is None:
+        raise ValueError("Unknown FOMC batch")
     run_id: UUID | None = None
     orphan_possible = False
     completed, new_versions = 0, 0
@@ -62,14 +76,14 @@ def ingest_pilot(
         )
 
     try:
-        run_id = store.reserve(now())
+        run_id = store.reserve(now(), batch=batch)
         calendar = client.fetch_calendar()
-        evidence = validate_calendar(calendar.body, calendar.content_type)
+        evidence = validate_calendar(calendar.body, calendar.content_type, documents=selection)
         orphan_possible = True
         artifacts.put(calendar.body)
         store.record_calendar(run_id, calendar, evidence, artifacts, stats())
         orphan_possible = False
-        for spec in PILOT_DOCUMENTS:
+        for spec in selection:
             fetched = client.fetch(spec.document_id)
             validated = validate_document(fetched, evidence)
             orphan_possible = True
