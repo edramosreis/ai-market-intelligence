@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from market_intelligence.db.fomc_processing_store import FomcProcessingStore
 from market_intelligence.fomc.artifacts import ArtifactError, ArtifactStore
-from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
+from market_intelligence.fomc.catalog import BATCHES, meeting_documents
 from market_intelligence.fomc.chunking import (
     DEFAULT_CHUNKER_CONFIG,
     ChunkerConfig,
@@ -56,7 +56,9 @@ def process_original(
     if raw.raw_version_id != source.raw_version_id:
         raise ProcessingError("identity_mismatch")
     try:
-        calendar = validate_calendar(calendar_body, source.calendar_content_type)
+        calendar = validate_calendar(
+            calendar_body, source.calendar_content_type, documents=meeting_documents(source.spec)
+        )
         parsed = parse_document(raw, calendar, parser)
     except FomcValidationError, FomcParseError:
         raise ProcessingError("parse_failed") from None
@@ -73,10 +75,24 @@ def process_pilot(
     parser: ParserConfig = DEFAULT_PARSER_CONFIG,
     chunker: ChunkerConfig = DEFAULT_CHUNKER_CONFIG,
 ) -> ProcessingRun:
-    sources = store.inputs()
+    return process_batch(store, artifacts, "pilot", parser=parser, chunker=chunker)
+
+
+def process_batch(
+    store: FomcProcessingStore,
+    artifacts: ArtifactStore,
+    batch: str,
+    *,
+    parser: ParserConfig = DEFAULT_PARSER_CONFIG,
+    chunker: ChunkerConfig = DEFAULT_CHUNKER_CONFIG,
+) -> ProcessingRun:
+    documents = BATCHES.get(batch)
+    if documents is None:
+        raise ProcessingError("unknown_batch")
+    sources = store.inputs(documents)
     run_id = uuid4()
     results: list[ProcessingResult] = []
-    for spec in PILOT_DOCUMENTS:
+    for spec in documents:
         source = sources.get(spec.document_id)
         if source is None:
             results.append(ProcessingResult(spec.document_id, "not_collected"))

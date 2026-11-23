@@ -10,29 +10,35 @@ from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.fomc_processing_store import FomcProcessingStore
 from market_intelligence.fomc.artifacts import ArtifactStore
+from market_intelligence.fomc.catalog import ADDITIONAL_BATCHES
 from market_intelligence.fomc.chunking import DEFAULT_CHUNKER_CONFIG
 from market_intelligence.fomc.cli import ARTIFACT_ROOT, private_artifact_root, report
 from market_intelligence.fomc.isolation import require_fomc_database
 from market_intelligence.fomc.parsing import DEFAULT_PARSER_CONFIG
-from market_intelligence.fomc.processing import process_pilot
+from market_intelligence.fomc.processing import process_batch, process_pilot
 from market_intelligence.fomc.processing_models import ProcessingError
 
 
 def add_arguments(parser: ArgumentParser) -> None:
     operation = parser.add_mutually_exclusive_group(required=True)
     operation.add_argument("--pilot", action="store_true", help="Process the four stored originals")
+    operation.add_argument(
+        "--batch", choices=ADDITIONAL_BATCHES, help="Process one stored 2024 batch"
+    )
     operation.add_argument("--status", action="store_true", help="Read passage readiness")
-    parser.add_argument("--artifact-root", type=Path, help="Private stored originals for --pilot")
+    parser.add_argument(
+        "--artifact-root", type=Path, help="Private stored originals for processing"
+    )
 
 
 def execute(args: Namespace) -> int:
     try:
         if args.status and args.artifact_root is not None:
-            raise ValueError("Artifact root applies only to the pilot")
+            raise ValueError("Artifact root applies only to processing")
         settings = DatabaseSettings(_env_file=None)  # type: ignore[call-arg]
         role = DatabaseRole.READ if args.status else DatabaseRole.INGEST
         require_fomc_database(settings.url(role))
-        root = private_artifact_root(args.artifact_root or ARTIFACT_ROOT) if args.pilot else None
+        root = None if args.status else private_artifact_root(args.artifact_root or ARTIFACT_ROOT)
         engine = create_db_engine(settings, role)
         try:
             store = FomcProcessingStore(engine)
@@ -46,7 +52,12 @@ def execute(args: Namespace) -> int:
                     )
                 )
                 return 0
-            result = process_pilot(store, ArtifactStore(root))
+            artifacts = ArtifactStore(root)
+            result = (
+                process_pilot(store, artifacts)
+                if args.pilot
+                else process_batch(store, artifacts, args.batch)
+            )
             report(dict(event="fomc_processing_completed", **asdict(result)))
             return 0 if all(d.outcome in {"created", "reused"} for d in result.documents) else 1
         finally:

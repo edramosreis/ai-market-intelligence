@@ -9,7 +9,7 @@ from unicodedata import category
 import sqlalchemy as sa
 from sqlalchemy import Connection, Engine
 
-from market_intelligence.db.fomc_processing_store import PILOT_IDS, processing_status
+from market_intelligence.db.fomc_processing_store import processing_status
 from market_intelligence.db.fomc_processing_tables import (
     fomc_parsed_blocks as blocks,
 )
@@ -20,6 +20,7 @@ from market_intelligence.db.fomc_processing_tables import (
     fomc_passages as passages,
 )
 from market_intelligence.db.fomc_tables import fomc_documents as documents
+from market_intelligence.fomc.catalog import CATALOG_IDS
 from market_intelligence.fomc.chunking import DEFAULT_CHUNKER_CONFIG
 from market_intelligence.fomc.isolation import require_fomc_database
 from market_intelligence.fomc.models import DocumentKind
@@ -110,7 +111,7 @@ def rank_current(conn: Connection, request: SearchRequest) -> Ranking:
     query = sa.func.plainto_tsquery(_ENGLISH, sa.literal(request.q, type_=sa.Text()))
     if not conn.scalar(sa.select(sa.func.numnode(query))):
         raise RetrievalError("no_search_terms", 422)
-    catalog = sa.select(documents.c.document_id).where(documents.c.document_id.in_(PILOT_IDS))
+    catalog = sa.select(documents.c.document_id).where(documents.c.document_id.in_(CATALOG_IDS))
     if request.kind is not None:
         catalog = catalog.where(documents.c.kind == request.kind.value)
     if request.meeting_end is not None:
