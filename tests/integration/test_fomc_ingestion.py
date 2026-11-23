@@ -14,6 +14,7 @@ from market_intelligence.fomc.models import CALENDAR_URL
 from market_intelligence.fomc.service import FomcIngestionError, ingest_batch, ingest_pilot
 from market_intelligence.fomc.validation import validate_calendar, validate_document
 from tests.fomc_fakes import calendar_body, document_body, fetched
+from tests.fomc_passage_fakes import passage_body
 from tests.integration.test_fomc_store import NOW, STATS, counts, start
 
 pytest_plugins = ["tests.integration.test_fomc_store"]
@@ -22,20 +23,29 @@ pytestmark = pytest.mark.integration
 
 
 class Clock:
-    elapsed = 0.0
+    def __init__(self, start: datetime) -> None:
+        self.start = start
+        self.elapsed = 0.0
 
     def sleep(self, seconds: float) -> None:
         self.elapsed += seconds
 
     def now(self) -> datetime:
-        return NOW + timedelta(seconds=self.elapsed)
+        return self.start + timedelta(seconds=self.elapsed)
 
     def monotonic(self) -> float:
         return self.elapsed
 
 
-def run(store: FomcStore, root: Path, fault: str | None = None, *, batch: str = "pilot") -> Any:
-    clock = Clock()
+def run(
+    store: FomcStore,
+    root: Path,
+    fault: str | None = None,
+    *,
+    batch: str = "pilot",
+    at: datetime = NOW,
+) -> Any:
+    clock = Clock(at)
     urls: list[str] = []
     documents = BATCHES[batch]
 
@@ -60,7 +70,11 @@ def run(store: FomcStore, root: Path, fault: str | None = None, *, batch: str = 
             body = calendar_body(documents)
         else:
             spec = next(d for d in documents if d.url == url)
-            body = document_body(spec)
+            body = (
+                document_body(spec)
+                if batch == "pilot"
+                else passage_body(spec, "<p>Synthetic policy text for deterministic tests.</p>")
+            )
             if fault == "invalid" and spec == PILOT_DOCUMENTS[1]:
                 body = body.replace(b"September 17-18", b"September 16-18")
         return httpx.Response(
@@ -96,7 +110,7 @@ def test_expansion_audit_records_only_the_named_batch_and_same_bytes_replay(
     assert result.http_attempts == 5 and counts(store.engine) == (4, 5, 4)
     assert store.status()[0]["requested_ids"] == [spec.document_id for spec in BATCHES[batch]]
     assert store.status()[0]["status"] == "succeeded"
-    replay = run(store, tmp_path, batch=batch)
+    replay = run(store, tmp_path, batch=batch, at=NOW + timedelta(days=1))
     assert replay.new_versions == 0 and counts(store.engine) == (4, 10, 4)
 
 

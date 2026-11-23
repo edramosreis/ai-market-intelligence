@@ -38,6 +38,7 @@ def test_populated_0006_upgrade_preserves_existing_data(
         assert connection.execute(sa.select(metadata.tables[name])).mappings().all() == rows
     for name in PROCESSING_TABLE_NAMES:
         assert connection.execute(sa.select(metadata.tables[name])).first() is None
+    command.upgrade(config, "head")
     command.check(config)
 
 

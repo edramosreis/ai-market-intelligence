@@ -10,10 +10,9 @@ def passage_body(spec: DocumentSpec, content: str, *, shared_date: bool = False)
         if spec.kind == DocumentKind.STATEMENT
         else "Minutes of the Federal Open Market Committee"
     )
-    meeting = (
-        f"{spec.meeting_start:%B} {spec.meeting_start.day}-"
-        f"{spec.meeting_end.day}, {spec.meeting_end.year}"
-    )
+    start, end = spec.meeting_start, spec.meeting_end
+    end_prefix = f"{end:%B} " if start.month != end.month else ""
+    meeting = f"{start:%B} {start.day}-{end_prefix}{end.day}, {end.year}"
     if spec.kind == DocumentKind.STATEMENT:
         article = (
             '<div class="heading col-sm-8"><p class="article__time">'
