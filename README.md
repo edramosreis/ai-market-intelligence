@@ -1202,11 +1202,39 @@ Developers can test against the separate tmpfs PostgreSQL project with the exist
 M3 test commands. Stored originals stay in the private artifact volume, read-only to
 the processing service. Stored passage text stays in the isolated database.
 
+## Expand the FOMC catalog to all scheduled 2024 meetings
+
+Revision `0008` adds the twelve remaining statement and minutes entries to the
+catalog. The earlier September/November pilot remains available through the
+existing commands. New entries count as uncollected until the approved originals
+are acquired, then remain pending until their own passage sets are published.
+The December minutes have a 2024 meeting date and a January 2025 release date.
+
+After approving and applying revision `0008` in isolated M3, select one reviewed
+batch per command. The three batch names are `2024-apr-may-dec`, `2024-jan-mar`,
+and `2024-jun-jul`. This example runs acquisition and processing separately.
+
+```powershell
+.venv\Scripts\python.exe scripts/m3.py fomc-ingest --batch 2024-apr-may-dec
+.venv\Scripts\python.exe scripts/m3.py fomc-process --batch 2024-apr-may-dec
+.venv\Scripts\python.exe scripts/m3.py fomc-process-status
+```
+
+The acquisition command contacts the Board only for the selected batch's four
+documents and its supporting calendar, under the existing request and byte caps.
+Search and processing use retained material. Test all three paths with the
+guarded synthetic M3 project before approving a separate live batch.
+
+The January minutes include a Committee officer roster. Processing preserves
+its nonempty rows in order as inspectable passages, with footnote links and
+source coordinates. Keyword search focuses on policy text.
+
 ## Search stored FOMC passages
 
-The isolated M3 API searches the four pilot documents using existing revision `0007`
-and the database reader. After the reviewed M3 runtime is deployed and the retained
-documents are processed, use the M3 API at `http://127.0.0.1:8001`.
+The isolated M3 API searches published passages within the 16-document 2024
+catalog using revision `0008` and the database reader. After the reviewed M3
+runtime is deployed and the retained documents are processed, use the M3 API
+at `http://127.0.0.1:8001`.
 
 ```powershell
 $fomc = 'http://127.0.0.1:8001/v1/fomc/passages'

@@ -18,6 +18,7 @@ POSTGRES_IMAGE = (
 PROJECT = "ai-market-intelligence-m3"
 PASSWORD_KEYS = {f"M3_{role}_PASSWORD" for role in ("ADMIN", "INGEST", "READ")}
 PORT_KEYS = {"M3_API_PORT", "M3_POSTGRES_PORT"}
+FOMC_BATCHES = ("2024-apr-may-dec", "2024-jan-mar", "2024-jun-jul")
 
 
 class IsolationError(ValueError):
@@ -301,7 +302,14 @@ def check_ports(values: Mapping[str, str], service: str) -> None:
                 raise IsolationError("An isolated localhost port is unavailable.") from None
 
 
-def run(root: Path, testing: bool, action: str, run_id: UUID | None = None) -> int:
+def run(
+    root: Path,
+    testing: bool,
+    action: str,
+    run_id: UUID | None = None,
+    *,
+    batch: str | None = None,
+) -> int:
     require(
         not testing or not action.startswith("fomc-"),
         "FOMC runtime commands cannot use test resources.",
@@ -309,6 +317,10 @@ def run(root: Path, testing: bool, action: str, run_id: UUID | None = None) -> i
     require(
         (action == "fomc-reconcile") == (run_id is not None),
         "Supply a run ID only for explicit FOMC reconciliation.",
+    )
+    require(
+        batch is None or (batch in FOMC_BATCHES and action in {"fomc-ingest", "fomc-process"}),
+        "Supply a reviewed batch only for FOMC acquisition or processing.",
     )
     check_worktree(root)
     values = read_settings(root, testing)
@@ -349,6 +361,10 @@ def run(root: Path, testing: bool, action: str, run_id: UUID | None = None) -> i
             )
         ]
     else:
+        selector = ["--pilot"] if batch is None else ["--batch", batch]
+        process = ["run", "--rm", "--no-deps", "process"]
+        if batch is not None:
+            process.extend(["process-fomc", *selector])
         operations = [
             {
                 "build": ["build", "tests" if testing else "migrate"],
@@ -358,9 +374,9 @@ def run(root: Path, testing: bool, action: str, run_id: UUID | None = None) -> i
                 "api": ["up", "-d", "--wait", "api"],
                 "migrate": ["run", "--rm", "migrate"],
                 "check": ["run", "--rm", "check"],
-                "fomc-ingest": ["run", "--rm", "ingest", "ingest-fomc", "--pilot"],
+                "fomc-ingest": ["run", "--rm", "ingest", "ingest-fomc", *selector],
                 "fomc-status": ["run", "--rm", "check", "ingest-fomc", "--status"],
-                "fomc-process": ["run", "--rm", "--no-deps", "process"],
+                "fomc-process": process,
                 "fomc-process-status": [
                     "run",
                     "--rm",
@@ -414,6 +430,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--run-id", type=UUID, help="An inspected interrupted FOMC run")
+    parser.add_argument("--batch", choices=FOMC_BATCHES, help="A reviewed 2024 FOMC batch")
     arguments = parser.parse_args(argv)
     if arguments.action in {"quality", "test", "down"} and not arguments.test:
         parser.error("This action requires --test; runtime cleanup is deliberately not exposed.")
@@ -421,6 +438,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("This action is for the isolated development project.")
     if (arguments.action == "fomc-reconcile") != (arguments.run_id is not None):
         parser.error("Supply --run-id only with fomc-reconcile.")
+    if arguments.batch is not None and arguments.action not in {"fomc-ingest", "fomc-process"}:
+        parser.error("Supply --batch only with fomc-ingest or fomc-process.")
     if arguments.test and arguments.action.startswith("fomc-"):
         parser.error("FOMC runtime commands require the isolated development project.")
     root = Path(__file__).resolve().parents[1]
@@ -430,6 +449,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if arguments.run_id is not None:
             return run(root, arguments.test, arguments.action, arguments.run_id)
+        if arguments.batch is not None:
+            return run(root, arguments.test, arguments.action, batch=arguments.batch)
         return run(root, arguments.test, arguments.action)
     except IsolationError as error:
         print(f"Refused: {error}")

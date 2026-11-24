@@ -1382,11 +1382,11 @@ mount. Migration and persistent processing acceptance are separate deployment st
 
 ## 21. FOMC lexical passage search and citations
 
-`fomc/retrieval.py` filters the fixed pilot catalog and ranks current published
+`fomc/retrieval.py` filters the reviewed FOMC catalog and ranks current published
 paragraphs, quotes and list items with PostgreSQL English full-text search.
 `plainto_tsquery` requires all normalized terms, and `ts_rank_cd` plus a
 bytewise passage ID tie-breaker orders results. The bounded pilot computes vectors
-from passage body at query time. It uses revision `0007`, existing grants and
+from passage body at query time. It uses the seeded catalog, existing grants and
 no index or extension. Dates filter separately by meeting end and publication.
 
 The search route reuses the processing-status query for coverage and requires the
@@ -1410,3 +1410,30 @@ invalid, missing and unavailable errors and sets `Cache-Control: no-store`.
 Retrieved source text is evidence. The existing native reader and model tools
 remain independent. Wider corpus, index, embeddings and answer behavior each
 require their own review.
+
+## 22. Scheduled 2024 FOMC coverage
+
+Revision `0008` seeds the twelve remaining statement/minutes catalog rows. The
+2024 catalog is 16 documents across eight scheduled meetings. It keeps the
+original pilot identities, all tables, audit constraints and grants. Downgrade
+refuses to remove the new rows once an acquisition audit references them.
+
+Acquisition reserves one catalog-defined batch of four document IDs and records
+them in the existing ordered audit array. The writer rejects receipts outside
+that selection, checks exact receipt membership at successful completion and
+commits earlier successful documents even when a later document fails. Each
+acquisition validates the selected meetings against the linked calendar. The
+April–May meeting uses distinct official calendar and document date labels, and
+the December minutes keep their January 2025 publication date.
+
+Offline processing validates the calendar for the raw version's meeting pair.
+The existing v3 validator identity and parser/chunker configuration hashes keep
+the pilot's generation and passage IDs stable. New layouts use the v4 validator
+identity. Readiness and search span the 16 catalog entries and report uncollected
+and pending documents exactly. Direct passage-ID inspection continues to resolve
+previously published sets. Tests use synthetic HTML and guarded PostgreSQL.
+
+The January 31 minutes have one reviewed officer roster table. The parser
+requires its appointment lead-in, complete row and cell structure, and one or
+two unmerged cells per row. It preserves nonempty row text and inline footnote
+coordinates as auxiliary blocks. Other table layouts fail explicitly.

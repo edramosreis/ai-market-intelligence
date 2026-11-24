@@ -74,7 +74,8 @@ def test_rank_stems_terms_and_uses_stable_ids_for_ties(
     process_pilot(FomcProcessingStore(store.engine), artifacts)
     with retrieval_snapshot(fomc_reader) as conn:
         found = rank_current(conn, SearchRequest("rates inflation", limit=2))
-        assert found.coverage.ready == found.coverage.catalog_documents == 4
+        assert found.coverage.ready == 4 and found.coverage.catalog_documents == 16
+        assert found.coverage.not_collected == 12
         # Identical passage bodies have equal rank. One extra result exposes the item limit.
         assert len(found.candidates) == 3 and len({item.score for item in found.candidates}) == 1
         assert [item.passage_id for item in found.candidates] == sorted(
@@ -129,11 +130,11 @@ def test_filtered_coverage_and_current_snapshot_have_no_old_fallback(
     with retrieval_snapshot(fomc_reader) as conn:
         before = rank_current(conn, SearchRequest("inflation"))
         assert before.coverage.model_dump() == dict(
-            catalog_documents=4,
+            catalog_documents=16,
             ready=1,
             pending=1,
             failed=1,
-            not_collected=1,
+            not_collected=13,
         )
         assert len(before.candidates) == 1
         fresh = collect_document(

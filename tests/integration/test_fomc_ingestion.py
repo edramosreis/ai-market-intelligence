@@ -6,14 +6,16 @@ import httpx
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from market_intelligence.db.fomc_store import FomcStore
+from market_intelligence.db.fomc_store import FomcStore, FomcStoreError
 from market_intelligence.fomc.artifacts import ArtifactStore
-from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
+from market_intelligence.fomc.catalog import BATCHES, PILOT_DOCUMENTS
 from market_intelligence.fomc.client import FomcAcquisitionClient
 from market_intelligence.fomc.models import CALENDAR_URL
-from market_intelligence.fomc.service import FomcIngestionError, ingest_pilot
-from tests.fomc_fakes import calendar_body, document_body
-from tests.integration.test_fomc_store import NOW, counts
+from market_intelligence.fomc.service import FomcIngestionError, ingest_batch, ingest_pilot
+from market_intelligence.fomc.validation import validate_calendar, validate_document
+from tests.fomc_fakes import calendar_body, document_body, fetched
+from tests.fomc_passage_fakes import passage_body
+from tests.integration.test_fomc_store import NOW, STATS, counts, start
 
 pytest_plugins = ["tests.integration.test_fomc_store"]
 
@@ -21,21 +23,31 @@ pytestmark = pytest.mark.integration
 
 
 class Clock:
-    elapsed = 0.0
+    def __init__(self, start: datetime) -> None:
+        self.start = start
+        self.elapsed = 0.0
 
     def sleep(self, seconds: float) -> None:
         self.elapsed += seconds
 
     def now(self) -> datetime:
-        return NOW + timedelta(seconds=self.elapsed)
+        return self.start + timedelta(seconds=self.elapsed)
 
     def monotonic(self) -> float:
         return self.elapsed
 
 
-def run(store: FomcStore, root: Path, fault: str | None = None) -> Any:
-    clock = Clock()
+def run(
+    store: FomcStore,
+    root: Path,
+    fault: str | None = None,
+    *,
+    batch: str = "pilot",
+    at: datetime = NOW,
+) -> Any:
+    clock = Clock(at)
     urls: list[str] = []
+    documents = BATCHES[batch]
 
     class CheckedArtifacts(ArtifactStore):
         def put(self, body: bytes) -> Path:
@@ -47,7 +59,7 @@ def run(store: FomcStore, root: Path, fault: str | None = None) -> Any:
         assert store.status()[0]["status"] == "running"
         url = str(request.url)
         urls.append(url)
-        if url == PILOT_DOCUMENTS[1].url:
+        if url == documents[1].url:
             if fault == "interrupt":
                 raise KeyboardInterrupt
             if fault == "reject":
@@ -55,10 +67,14 @@ def run(store: FomcStore, root: Path, fault: str | None = None) -> Any:
             if fault == "unexpected":
                 raise RuntimeError("Untrusted failure detail must remain private")
         if url == CALENDAR_URL:
-            body = calendar_body()
+            body = calendar_body(documents)
         else:
-            spec = next(d for d in PILOT_DOCUMENTS if d.url == url)
-            body = document_body(spec)
+            spec = next(d for d in documents if d.url == url)
+            body = (
+                document_body(spec)
+                if batch == "pilot"
+                else passage_body(spec, "<p>Synthetic policy text for deterministic tests.</p>")
+            )
             if fault == "invalid" and spec == PILOT_DOCUMENTS[1]:
                 body = body.replace(b"September 17-18", b"September 16-18")
         return httpx.Response(
@@ -69,7 +85,10 @@ def run(store: FomcStore, root: Path, fault: str | None = None) -> Any:
         client = FomcAcquisitionClient(
             http, monotonic=clock.monotonic, sleep=clock.sleep, now=clock.now
         )
-        return ingest_pilot(store, client, CheckedArtifacts(root), now=clock.now)
+        artifacts = CheckedArtifacts(root)
+        if batch == "pilot":
+            return ingest_pilot(store, client, artifacts, now=clock.now)
+        return ingest_batch(store, client, artifacts, batch, now=clock.now)
 
 
 def test_complete_synthetic_pilot_releases_connections(store: FomcStore, tmp_path: Path) -> None:
@@ -80,6 +99,41 @@ def test_complete_synthetic_pilot_releases_connections(store: FomcStore, tmp_pat
     assert counts(store.engine) == (4, 5, 4)
     assert store.status()[0]["status"] == "succeeded"
     assert len(list(tmp_path.rglob("*.html"))) == 5
+
+
+def test_expansion_audit_records_only_the_named_batch_and_same_bytes_replay(
+    store: FomcStore, tmp_path: Path
+) -> None:
+    batch = "2024-apr-may-dec"
+    result = run(store, tmp_path, batch=batch)
+    assert result.documents_completed == result.new_versions == 4
+    assert result.http_attempts == 5 and counts(store.engine) == (4, 5, 4)
+    assert store.status()[0]["requested_ids"] == [spec.document_id for spec in BATCHES[batch]]
+    assert store.status()[0]["status"] == "succeeded"
+    replay = run(store, tmp_path, batch=batch, at=NOW + timedelta(days=1))
+    assert replay.new_versions == 0 and counts(store.engine) == (4, 10, 4)
+
+
+def test_only_reserved_document_ids_can_count_toward_success(
+    store: FomcStore, tmp_path: Path
+) -> None:
+    artifacts = ArtifactStore(tmp_path)
+    run_id, calendar = start(store, artifacts)
+    other = BATCHES["2024-apr-may-dec"][0]
+    raw = fetched(other)
+    artifacts.put(raw.body)
+    with pytest.raises(FomcStoreError, match="^document_outside_batch$"):
+        store.record_document(
+            run_id,
+            validate_document(raw, validate_calendar(calendar.body)),
+            calendar.receipt_id,
+            artifacts,
+            STATS,
+        )
+    with pytest.raises(FomcStoreError, match="^batch_incomplete$"):
+        store.finish(run_id, NOW, STATS)
+    assert counts(store.engine) == (0, 1, 0)
+    assert store.status()[0]["status"] == "running"
 
 
 @pytest.mark.parametrize(

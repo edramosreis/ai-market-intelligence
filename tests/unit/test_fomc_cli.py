@@ -10,7 +10,15 @@ from market_intelligence.fomc import cli
 
 
 @pytest.mark.parametrize(
-    "args", [[], ["--pilot", "--status"], ["--reconcile-run", "bad"], ["--url", "https://invalid"]]
+    "args",
+    [
+        [],
+        ["--pilot", "--status"],
+        ["--reconcile-run", "bad"],
+        ["--url", "https://invalid"],
+        ["--batch", "2025"],
+        ["--pilot", "--batch", "2024-apr-may-dec"],
+    ],
 )
 def test_invalid_options_fail_before_configuration(
     args: list[str], monkeypatch: pytest.MonkeyPatch

@@ -39,8 +39,9 @@ from market_intelligence.db.fomc_tables import (
 from market_intelligence.db.fomc_tables import (
     fomc_raw_versions as versions,
 )
-from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
+from market_intelligence.fomc.catalog import CATALOG_IDS, PILOT_DOCUMENTS, PILOT_IDS
 from market_intelligence.fomc.chunking import ChunkerConfig
+from market_intelligence.fomc.models import DocumentSpec
 from market_intelligence.fomc.passage_models import ParserConfig
 from market_intelligence.fomc.processing_models import (
     Outcome,
@@ -50,8 +51,6 @@ from market_intelligence.fomc.processing_models import (
     ProcessingResult,
     Row,
 )
-
-PILOT_IDS = tuple(spec.document_id for spec in PILOT_DOCUMENTS)
 
 
 def _read_only(conn: Connection) -> None:
@@ -157,7 +156,9 @@ class FomcProcessingStore:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
 
-    def inputs(self) -> dict[str, ProcessingInput]:
+    def inputs(
+        self, documents: tuple[DocumentSpec, ...] = PILOT_DOCUMENTS
+    ) -> dict[str, ProcessingInput]:
         calendar = receipts.alias("supporting_calendar")
         with (
             self.engine.connect().execution_options(isolation_level="REPEATABLE READ") as conn,
@@ -188,11 +189,11 @@ class FomcProcessingStore:
                     .join(receipts, versions.c.first_receipt_id == receipts.c.receipt_id)
                     .join(calendar, receipts.c.calendar_receipt_id == calendar.c.receipt_id)
                 )
-                .where(current.c.document_id.in_(PILOT_IDS))
+                .where(current.c.document_id.in_(spec.document_id for spec in documents))
             ).mappings()
             by_id = {row["document_id"]: row for row in rows}
         result = {}
-        for spec in PILOT_DOCUMENTS:
+        for spec in documents:
             row = by_id.get(spec.document_id)
             if row is None:
                 continue
@@ -209,7 +210,7 @@ class FomcProcessingStore:
             conn.begin(),
         ):
             _read_only(conn)
-            return processing_status(conn, parser, chunker)
+            return processing_status(conn, parser, chunker, CATALOG_IDS)
 
     @staticmethod
     def _lock_current(conn: Connection, source: ProcessingInput) -> bool:

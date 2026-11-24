@@ -217,7 +217,7 @@ def test_elapsed_deadline_and_unknown_id_make_no_request() -> None:
     clock = Clock()
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
         client = acquisition(http, clock)
-        with pytest.raises(ValueError, match="Unknown pilot document"):
+        with pytest.raises(ValueError, match="Unknown FOMC document"):
             client.fetch("https://other.test/private")
         clock.elapsed = 120
         with pytest.raises(AcquisitionError, match="^deadline_exceeded$"):

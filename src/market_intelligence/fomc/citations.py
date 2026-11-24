@@ -11,7 +11,6 @@ from pydantic import ValidationError
 from sqlalchemy import Connection, Engine
 from sqlalchemy.engine import RowMapping
 
-from market_intelligence.db.fomc_processing_store import PILOT_IDS
 from market_intelligence.db.fomc_processing_tables import (
     fomc_parse_generations as generations,
 )
@@ -42,6 +41,7 @@ from market_intelligence.db.fomc_tables import (
 from market_intelligence.db.fomc_tables import (
     fomc_raw_versions as versions,
 )
+from market_intelligence.fomc.catalog import CATALOG_IDS
 from market_intelligence.fomc.chunking import DEFAULT_CHUNKER_CONFIG, SEPARATOR
 from market_intelligence.fomc.models import DocumentKind
 from market_intelligence.fomc.parsing import DEFAULT_PARSER_CONFIG
@@ -130,7 +130,7 @@ def _published_rows(conn: Connection, passage_ids: tuple[str, ...]) -> dict[str,
                 ),
             )
         )
-        .where(documents.c.document_id.in_(PILOT_IDS), passages.c.passage_id.in_(passage_ids))
+        .where(documents.c.document_id.in_(CATALOG_IDS), passages.c.passage_id.in_(passage_ids))
     )
     return {row["passage_id"]: row for row in conn.execute(selection).mappings()}
 
