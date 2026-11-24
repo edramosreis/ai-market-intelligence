@@ -46,7 +46,11 @@ def names(node: _Node) -> tuple[str, ...]:
 
 class _PassagePage(_Page):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        extra = [(k, v) for k, v in attrs if k in {"name", "start", "value", "type"}]
+        extra = [
+            (k, v)
+            for k, v in attrs
+            if k in {"name", "start", "value", "type", "rowspan", "colspan"}
+        ]
         if len({k for k, _ in extra}) != len(extra):
             raise FomcParseError("ambiguous_fomc_attribute")
         super().handle_starttag(tag, attrs)

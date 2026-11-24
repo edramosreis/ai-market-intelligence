@@ -434,3 +434,8 @@ the April–May meeting dates and the December minutes’ January 2025 publicati
 date independently. Readiness and keyword search cover all sixteen catalog
 rows. Check changes against the isolated `db-test` database before any approved
 persistent M3 migration or live Board collection.
+
+Only the officer roster in the January 31 minutes has a supported table layout.
+Keep its nonempty rows as auxiliary evidence with exact inline footnote
+coordinates. Reject unreviewed table layouts and preserve the generation and
+passage identities of previously supported originals.

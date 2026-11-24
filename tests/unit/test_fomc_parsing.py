@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
+from market_intelligence.fomc.catalog import ADDITIONAL_BATCHES, PILOT_DOCUMENTS, meeting_documents
 from market_intelligence.fomc.models import DocumentSpec
 from market_intelligence.fomc.parsing import parse_document
 from market_intelligence.fomc.passage_models import BlockKind, FomcParseError, ParserConfig
@@ -96,6 +96,58 @@ def test_statement_requires_exactly_one_body_container() -> None:
     )
     with pytest.raises(FomcParseError, match="ambiguous_fomc_body"):
         parse_document(fetched(spec, body), validate_calendar(calendar_body()))
+
+
+OFFICER_TABLE = (
+    "<p>By unanimous vote, the following officers of the Committee were selected:</p>"
+    "<table><tbody>"
+    "<tr><td>Example Person</td><td>Secretary</td></tr>"
+    "<tr><td></td><td></td></tr>"
+    '<tr><td>Example role<a name="f6"></a><sup><a href="#fn6">6</a></sup></td></tr>'
+    "</tbody></table>"
+)
+
+
+def test_january_officer_table_keeps_rows_and_footnote_coordinates() -> None:
+    spec = ADDITIONAL_BATCHES["2024-jan-mar"][1]
+    selected = meeting_documents(spec)
+    raw = fetched(
+        spec,
+        passage_body(
+            spec,
+            OFFICER_TABLE
+            + f"<p>{TEXT}</p>"
+            + '<hr><p><a name="fn6"></a>6. Synthetic note. <a href="#f6">Return to text</a></p>',
+        ),
+    )
+    parsed = parse_document(raw, validate_calendar(calendar_body(selected), documents=selected))
+    rows = [block for block in parsed.blocks if block.kind == BlockKind.AUXILIARY]
+    assert [block.text for block in rows] == ["Example Person Secretary", "Example role6"]
+    assert rows[1].anchors[0].name == "f6" and rows[1].anchors[0].offset == 12
+    ref = rows[1].references[0]
+    assert ref.target == "fn6" and rows[1].text[ref.start : ref.end] == "6"
+    assert parsed.blocks[-1].anchors[0].name == "fn6"
+    assert parsed.blocks[-1].references[0].target == "f6"
+    assert not parsed.issues
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        OFFICER_TABLE.replace("<td>Example Person", '<td colspan="2">Example Person'),
+        OFFICER_TABLE.replace("<td>Example Person", '<td rowspan="2">Example Person'),
+        OFFICER_TABLE.replace("the following officers", "other details"),
+        OFFICER_TABLE.replace("<tbody>", "").replace("</tbody>", ""),
+    ],
+)
+def test_january_officer_table_rejects_unsupported_structure(table: str) -> None:
+    spec = ADDITIONAL_BATCHES["2024-jan-mar"][1]
+    selected = meeting_documents(spec)
+    body = passage_body(spec, table)
+    with pytest.raises(FomcParseError, match="unsupported_fomc_layout"):
+        parse_document(
+            fetched(spec, body), validate_calendar(calendar_body(selected), documents=selected)
+        )
 
 
 def test_body_instructions_are_inert_text_and_local_missing_anchor_is_explicit() -> None:

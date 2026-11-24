@@ -1432,3 +1432,8 @@ the pilot's generation and passage IDs stable. New layouts use the v4 validator
 identity. Readiness and search span the 16 catalog entries and report uncollected
 and pending documents exactly. Direct passage-ID inspection continues to resolve
 previously published sets. Tests use synthetic HTML and guarded PostgreSQL.
+
+The January 31 minutes have one reviewed officer roster table. The parser
+requires its appointment lead-in, complete row and cell structure, and one or
+two unmerged cells per row. It preserves nonempty row text and inline footnote
+coordinates as auxiliary blocks. Other table layouts fail explicitly.

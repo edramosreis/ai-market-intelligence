@@ -1225,6 +1225,10 @@ documents and its supporting calendar, under the existing request and byte caps.
 Search and processing use retained material. Test all three paths with the
 guarded synthetic M3 project before approving a separate live batch.
 
+The January minutes include a Committee officer roster. Processing preserves
+its nonempty rows in order as inspectable passages, with footnote links and
+source coordinates. Keyword search focuses on policy text.
+
 ## Search stored FOMC passages
 
 The isolated M3 API searches published passages within the 16-document 2024

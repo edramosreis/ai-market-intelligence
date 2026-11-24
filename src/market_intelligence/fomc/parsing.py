@@ -1,6 +1,7 @@
 """Pure bounded Board layout adapter over already acquired originals."""
 
 import re
+from datetime import date
 from urllib.parse import urljoin
 
 from market_intelligence.fomc.client import FetchedDocument
@@ -44,7 +45,21 @@ MINUTES_SECTIONS = {
 }
 DEFAULT_PARSER_CONFIG = ParserConfig()
 CONTAINERS = {"div", "section", "article", "main"}
-BLOCK_TAGS = {"p", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "hr", *CONTAINERS}
+BLOCK_TAGS = {
+    "p",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "hr",
+    "table",
+    *CONTAINERS,
+}
+OFFICER_INTRO = "By unanimous vote, the following officers of the Committee were selected"
 
 
 class _Extractor:
@@ -57,6 +72,7 @@ class _Extractor:
         self.text_bytes = 0
         self.dateline_pending = validated.fetched.document.kind == DocumentKind.MINUTES
         self.notes_region = False
+        self.officer_table_seen = False
 
     def emit(
         self,
@@ -181,6 +197,56 @@ class _Extractor:
                 self.node(child, quote, listing)
         flush()
 
+    @staticmethod
+    def table_children(node: _Node, tag: str) -> list[_Node]:
+        children: list[_Node] = []
+        for item in node.children:
+            if isinstance(item, str) and not item.strip():
+                continue
+            if (
+                not isinstance(item, _Node)
+                or item.tag != tag
+                or not item.complete
+                or hidden(item)
+                or names(item)
+                or {"rowspan", "colspan"} & item.attrs.keys()
+            ):
+                raise FomcParseError()
+            children.append(item)
+        return children
+
+    def officer_table(self, node: _Node) -> None:
+        spec = self.validated.fetched.document
+        if (
+            spec.kind != DocumentKind.MINUTES
+            or spec.meeting_end != date(2024, 1, 31)
+            or self.officer_table_seen
+            or self.notes_region
+            or not self.blocks
+            or not self.blocks[-1].text.startswith(OFFICER_INTRO)
+            or not self.blocks[-1].text.endswith(":")
+        ):
+            raise FomcParseError()
+        bodies = self.table_children(node, "tbody")
+        if len(bodies) != 1:
+            raise FomcParseError()
+        rows = self.table_children(bodies[0], "tr")
+        if not 1 <= len(rows) <= 64:
+            raise FomcParseError()
+        before_rows = len(self.blocks)
+        for row in rows:
+            cells = self.table_children(row, "td")
+            if not 1 <= len(cells) <= 2:
+                raise FomcParseError()
+            inline: list[_Node | str] = []
+            for cell in cells:
+                inline.extend(cell.children)
+                inline.append(" ")
+            self.emit(inline_text(inline), BlockKind.AUXILIARY, (), ())
+        if len(self.blocks) == before_rows:
+            raise FomcParseError()
+        self.officer_table_seen = True
+
     def node(self, node: _Node, quote: tuple[int, ...], listing: tuple[ListPosition, ...]) -> None:
         if hidden(node):
             return
@@ -216,6 +282,8 @@ class _Extractor:
                 position += 1
         elif node.tag == "hr":
             self.notes_region = True
+        elif node.tag == "table" and not quote and not listing:
+            self.officer_table(node)
         else:
             raise FomcParseError()
 
