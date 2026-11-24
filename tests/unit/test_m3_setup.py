@@ -494,3 +494,45 @@ def test_processing_mount_requires_read_only(launcher: ModuleType, linked_root: 
     model["services"]["process"]["volumes"][0].pop("read_only")
     with pytest.raises(launcher.IsolationError, match="Unexpected mount"):
         launcher.validate_model(model, linked_root, False, values)
+
+
+@pytest.mark.parametrize("mutation", [None, "image", "context", "port", "mount", "pull", "role"])
+def test_vector_database_requires_the_exact_disposable_build(
+    launcher: ModuleType, linked_root: Path, mutation: str | None
+) -> None:
+    values = configuration(linked_root, True)
+    model = resolved_model(linked_root, values, True)
+    database = model["services"]["db-test"]
+    database.update(
+        image="ai-market-intelligence-postgres:m3-vector-test",
+        pull_policy="never",
+        build=dict(
+            context=str(linked_root / "docker" / "m3-vector-postgres"),
+            dockerfile="Dockerfile",
+            target="vector",
+        ),
+    )
+    model["services"]["tests"]["environment"]["RUN_VECTOR_TESTS"] = "1"
+    if mutation is None:
+        launcher.validate_model(model, linked_root, True, values, vectors=True)
+        return
+    if mutation == "image":
+        database["image"] = "ai-market-intelligence-postgres:m3-vector"
+    elif mutation == "context":
+        database["build"]["context"] = str(linked_root.parent)
+    elif mutation == "port":
+        database["ports"] = [{"published": "55433"}]
+    elif mutation == "mount":
+        database["volumes"] = [{"source": "ai-market-intelligence-m3_postgres_data"}]
+    elif mutation == "pull":
+        database["pull_policy"] = "always"
+    else:
+        database["environment"]["POSTGRES_USER"] = "m3_admin"
+    with pytest.raises(launcher.IsolationError):
+        launcher.validate_model(model, linked_root, True, values, vectors=True)
+
+
+def test_vector_mode_cannot_select_the_persistent_database(launcher: ModuleType) -> None:
+    with pytest.raises(SystemExit) as error:
+        launcher.main(["--vectors", "build"])
+    assert error.value.code == 2
