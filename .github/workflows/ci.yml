@@ -19,31 +19,31 @@ jobs:
           persist-credentials: false
 
       - name: Validate isolated development configuration
+        id: isolated-config
         run: |
           git worktree add --detach "$RUNNER_TEMP/m3-config" HEAD
           python3 "$RUNNER_TEMP/m3-config/scripts/m3.py" init
           python3 "$RUNNER_TEMP/m3-config/scripts/m3.py" --test init
           python3 "$RUNNER_TEMP/m3-config/scripts/m3.py" validate
           python3 "$RUNNER_TEMP/m3-config/scripts/m3.py" --test validate
-
-      - name: Generate temporary test configuration
-        run: python3 scripts/init_local_env.py
+          python3 "$RUNNER_TEMP/m3-config/scripts/m3.py" --test --vectors validate
 
       - name: Build test environment
-        run: docker compose -f compose.test.yaml build tests
+        working-directory: ${{ runner.temp }}/m3-config
+        run: python3 scripts/m3.py --test --vectors build
 
       - name: Formatting, linting and types
-        run: |
-          docker compose -f compose.test.yaml run --rm --no-deps tests ruff format --check src migrations tests scripts
-          docker compose -f compose.test.yaml run --rm --no-deps tests ruff check src migrations tests scripts
-          docker compose -f compose.test.yaml run --rm --no-deps tests mypy
+        working-directory: ${{ runner.temp }}/m3-config
+        run: python3 scripts/m3.py --test --vectors quality
 
       - name: Isolated test suite
-        run: docker compose -f compose.test.yaml up --abort-on-container-exit --exit-code-from tests
+        working-directory: ${{ runner.temp }}/m3-config
+        run: python3 scripts/m3.py --test --vectors test
 
       - name: Clean up test environment
-        if: always()
-        run: docker compose -f compose.test.yaml down
+        if: always() && steps.isolated-config.outcome == 'success'
+        working-directory: ${{ runner.temp }}/m3-config
+        run: python3 scripts/m3.py --test --vectors down
 
   secrets:
     name: Secrets
