@@ -439,3 +439,14 @@ Only the officer roster in the January 31 minutes has a supported table layout.
 Keep its nonempty rows as auxiliary evidence with exact inline footnote
 coordinates. Reject unreviewed table layouts and preserve the generation and
 passage identities of previously supported originals.
+
+### M3 vector tests
+
+From the linked worktree, run `scripts/m3.py --test --vectors` with
+`validate`, `build`, `quality`, `test` or `down`. The wrapper uses the same
+guarded tmpfs test project and a dedicated locally built PostgreSQL image.
+Keep its PostgreSQL base and PGDG header versions equal. Pin the pgvector source
+and header packages with checksums and keep compiler dependencies in the
+builder. Test stock configuration separately and retain revision `0008` until
+an additive migration is reviewed. Install the extension for foundation
+checks only in the rolled-back `db-test` fixture. Use synthetic vectors in CI.

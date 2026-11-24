@@ -189,6 +189,23 @@ PostgreSQL database. Cleanup targets only the M3 test project and preserves imag
 The launcher exposes no development-volume deletion or scheduler activation command.
 Scheduler and agent are fixed off; no model credentials enter these containers.
 
+The optional vector test mode builds pgvector 0.8.7 against the pinned PostgreSQL
+18.6 Bookworm server and matching development headers. From the linked M3
+worktree, use the existing ignored test configuration and run:
+
+```powershell
+python scripts/m3.py --test --vectors validate
+python scripts/m3.py --test --vectors build
+python scripts/m3.py --test --vectors quality
+python scripts/m3.py --test --vectors test
+python scripts/m3.py --test --vectors down
+```
+
+The tests install the extension in a rolled-back transaction and check exact
+cosine distance, tie ordering, invalid vectors, and reader permissions with
+synthetic coordinates. The vector build keeps the ordinary stock PostgreSQL
+test path available. The application migration head remains `0008`.
+
 Provisioning the separate development database/API is opt-in: `build`, `db`, `migrate`,
 `check`, then `api` are individual launcher actions. They never run as part of `init`
 or validation. Review resolved isolation before provisioning, apply migrations before
