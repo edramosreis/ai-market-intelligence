@@ -11,6 +11,7 @@ from market_intelligence.db.fomc_processing_tables import PROCESSING_TABLE_NAMES
 from market_intelligence.db.fomc_store import FomcStore
 from market_intelligence.db.tables import candles, metadata
 from market_intelligence.fomc.artifacts import ArtifactStore
+from tests.db_test_schema import check_schema, integration_revision
 from tests.integration.test_fomc_store import NOW, load, store  # noqa: F401
 from tests.integration.test_schema import candle_values
 
@@ -38,8 +39,8 @@ def test_populated_0006_upgrade_preserves_existing_data(
         assert connection.execute(sa.select(metadata.tables[name])).mappings().all() == rows
     for name in PROCESSING_TABLE_NAMES:
         assert connection.execute(sa.select(metadata.tables[name])).first() is None
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, integration_revision())
+    check_schema(config)
 
 
 def test_processing_tables_are_append_only_for_writer(

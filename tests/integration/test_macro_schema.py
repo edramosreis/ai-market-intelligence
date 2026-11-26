@@ -27,6 +27,7 @@ from market_intelligence.db.tables import (
     treasury_yields,
 )
 from market_intelligence.macro.models import CATALOG, MacroSeries
+from tests.db_test_schema import check_schema, integration_revision
 from tests.integration.test_hyperliquid_schema import funding_values, oi_values
 from tests.integration.test_schema import candle_values
 from tests.integration.test_treasury_schema import treasury_yield_values
@@ -84,7 +85,7 @@ def test_catalog_matches_reviewed_native_models(connection: Connection) -> None:
         )
     config = migration_config()
     config.attributes["connection"] = connection
-    command.check(config)
+    check_schema(config)
 
 
 def test_current_pointer_and_ordered_footnotes_round_trip(connection: Connection) -> None:
@@ -245,9 +246,9 @@ def test_upgrade_preserves_all_existing_source_facts(connection: Connection) -> 
     config.attributes["connection"] = connection
     command.downgrade(config, "0003")
     assert "macro_current" not in sa.inspect(connection).get_table_names()
-    command.upgrade(config, "head")
+    command.upgrade(config, integration_revision())
     assert snapshot() == before
-    command.check(config)
+    check_schema(config)
 
 
 @pytest.mark.parametrize("role", [DatabaseRole.READ, DatabaseRole.INGEST])

@@ -1437,3 +1437,23 @@ The January 31 minutes have one reviewed officer roster table. The parser
 requires its appointment lead-in, complete row and cell structure, and one or
 two unmerged cells per row. It preserves nonempty row text and inline footnote
 coordinates as auxiliary blocks. Other table layouts fail explicitly.
+
+## 23. Vector test foundation
+
+The opt-in `--test --vectors` launcher mode overlays only the disposable
+`db-test` service and a synthetic-test flag. The resolved model must use the
+dedicated local image, exact narrow build context, tmpfs storage, test credentials,
+and no host binding. The CI checks job uses this guarded test mode. The
+default stock target remains independently available.
+
+The vector image starts from the pinned PostgreSQL 18.6 Bookworm image.
+Its builder verifies the official pgvector 0.8.7 source archive and the matching
+PGDG server headers by checksum. It uses portable compiler flags and copies
+the extension installation into the original server base, keeping the toolchain
+out of the final image. The application schema remains at revision `0008`.
+
+Disposable tests create the extension in an administrator-owned schema, verify
+exact filtered cosine ranking and deterministic ties, and exercise invalid
+coordinates and reader-role permissions. The test fixture rolls back extension,
+schema and synthetic rows together. An application vector schema and reader
+require a separate reviewed migration and design.

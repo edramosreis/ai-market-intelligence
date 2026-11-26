@@ -15,6 +15,7 @@ from uuid import UUID
 POSTGRES_IMAGE = (
     "postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650"
 )
+VECTOR_TEST_IMAGE = "ai-market-intelligence-postgres:m3-vector-test"
 PROJECT = "ai-market-intelligence-m3"
 PASSWORD_KEYS = {f"M3_{role}_PASSWORD" for role in ("ADMIN", "INGEST", "READ")}
 PORT_KEYS = {"M3_API_PORT", "M3_POSTGRES_PORT"}
@@ -108,8 +109,9 @@ def compose_environment(environment: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def compose_prefix(root: Path, testing: bool) -> list[str]:
-    return [
+def compose_prefix(root: Path, testing: bool, *, vectors: bool = False) -> list[str]:
+    require(not vectors or testing, "Vector builds require the isolated test project.")
+    prefix = [
         "docker",
         "compose",
         "--project-directory",
@@ -121,6 +123,9 @@ def compose_prefix(root: Path, testing: bool) -> list[str]:
         "-f",
         str(root / ("compose.m3.test.yaml" if testing else "compose.m3.yaml")),
     ]
+    if vectors:
+        prefix.extend(["-f", str(root / "compose.m3.vector.test.yaml")])
+    return prefix
 
 
 def expected_environment(service: str, values: Mapping[str, str], testing: bool) -> dict[str, str]:
@@ -159,8 +164,14 @@ def expected_environment(service: str, values: Mapping[str, str], testing: bool)
 
 
 def validate_model(
-    model: dict[str, Any], root: Path, testing: bool, values: Mapping[str, str]
+    model: dict[str, Any],
+    root: Path,
+    testing: bool,
+    values: Mapping[str, str],
+    *,
+    vectors: bool = False,
 ) -> None:
+    require(not vectors or testing, "Vector builds require the isolated test project.")
     """Check the fully resolved model before allowing any Docker mutation."""
     name = project_name(testing)
     require(model.get("name") == name, "Wrong Compose project.")
@@ -203,16 +214,20 @@ def validate_model(
     for service, raw in services.items():
         item = object_value(raw)
         is_database = service in {"db", "db-test"}
-        image = (
-            POSTGRES_IMAGE
-            if is_database
-            else "ai-market-intelligence:m3" + ("-tests" if testing else "")
-        )
+        if is_database:
+            image = VECTOR_TEST_IMAGE if vectors else POSTGRES_IMAGE
+        else:
+            image = "ai-market-intelligence:m3" + ("-tests" if testing else "")
         require(item.get("image") == image, "Wrong image tag or database digest.")
         require(item.get("restart") == "no", "Automatic restart is not enabled for M3.")
+        if vectors and service == "db-test":
+            require(item.get("pull_policy") == "never", "Vector tests require a local build.")
         require(item.get("networks") == {"default": None}, "Service has an unexpected network.")
+        environment = expected_environment(service, values, testing)
+        if vectors and service == "tests":
+            environment["RUN_VECTOR_TESTS"] = "1"
         require(
-            item.get("environment") == expected_environment(service, values, testing),
+            item.get("environment") == environment,
             "Wrong service credentials, target or enabled flags.",
         )
         require(item.get("command") == commands.get(service), "Unexpected service command.")
@@ -247,6 +262,16 @@ def validate_model(
                 "target": "development" if testing else "runtime",
             }
             require(build == expected_build, "Build context or target escaped the worktree.")
+        elif vectors and service == "db-test":
+            require(
+                build
+                == {
+                    "context": str(root / "docker" / "m3-vector-postgres"),
+                    "dockerfile": "Dockerfile",
+                    "target": "vector",
+                },
+                "Wrong vector database build context.",
+            )
         else:
             require(build is None, "Unexpected build target.")
         ports = []
@@ -309,7 +334,12 @@ def run(
     run_id: UUID | None = None,
     *,
     batch: str | None = None,
+    vectors: bool = False,
 ) -> int:
+    require(
+        not vectors or (testing and action in {"validate", "build", "quality", "test", "down"}),
+        "Vector mode is available only for isolated test operations.",
+    )
     require(
         not testing or not action.startswith("fomc-"),
         "FOMC runtime commands cannot use test resources.",
@@ -325,7 +355,7 @@ def run(
     check_worktree(root)
     values = read_settings(root, testing)
     environment = compose_environment(os.environ)
-    prefix = compose_prefix(root, testing)
+    prefix = compose_prefix(root, testing, vectors=vectors)
     rendered = subprocess.run(
         [*prefix, "--profile", "*", "config", "--format", "json"],
         cwd=root,
@@ -336,7 +366,9 @@ def run(
         timeout=30,
     )
     require(rendered.returncode == 0, "Compose configuration could not be resolved.")
-    validate_model(object_value(json.loads(rendered.stdout)), root, testing, values)
+    validate_model(
+        object_value(json.loads(rendered.stdout)), root, testing, values, vectors=vectors
+    )
     print(
         json.dumps(
             {
@@ -367,7 +399,9 @@ def run(
             process.extend(["process-fomc", *selector])
         operations = [
             {
-                "build": ["build", "tests" if testing else "migrate"],
+                "build": ["build", "db-test", "tests"]
+                if vectors
+                else ["build", "tests" if testing else "migrate"],
                 "test": ["up", "--abort-on-container-exit", "--exit-code-from", "tests"],
                 "down": ["down"],
                 "db": ["up", "-d", "--wait", "db"],
@@ -410,6 +444,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--test", action="store_true", help="Use the independent tmpfs test project."
     )
     parser.add_argument(
+        "--vectors", action="store_true", help="Use the pinned pgvector image in --test mode."
+    )
+    parser.add_argument(
         "action",
         choices=(
             "init",
@@ -432,6 +469,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run-id", type=UUID, help="An inspected interrupted FOMC run")
     parser.add_argument("--batch", choices=FOMC_BATCHES, help="A reviewed 2024 FOMC batch")
     arguments = parser.parse_args(argv)
+    if arguments.vectors and (
+        not arguments.test
+        or arguments.action not in {"validate", "build", "quality", "test", "down"}
+    ):
+        parser.error("--vectors is available only for isolated test operations.")
     if arguments.action in {"quality", "test", "down"} and not arguments.test:
         parser.error("This action requires --test; runtime cleanup is deliberately not exposed.")
     if arguments.action in {"db", "migrate", "api", "check"} and arguments.test:
@@ -451,6 +493,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run(root, arguments.test, arguments.action, arguments.run_id)
         if arguments.batch is not None:
             return run(root, arguments.test, arguments.action, batch=arguments.batch)
+        if arguments.vectors:
+            return run(root, arguments.test, arguments.action, vectors=True)
         return run(root, arguments.test, arguments.action)
     except IsolationError as error:
         print(f"Refused: {error}")

@@ -5,6 +5,14 @@ from psycopg import sql
 
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.fomc_processing_tables import PROCESSING_TABLE_NAMES
+from market_intelligence.db.fomc_vector_schema import (
+    REQUEST_TABLE,
+    REQUEST_UPDATES,
+    RUN_TABLE,
+    RUN_UPDATES,
+    VECTOR_REVISION,
+    VECTOR_TABLES,
+)
 
 TABLE_NAMES = (
     "data_sources",
@@ -81,6 +89,32 @@ def provision_roles(settings: DatabaseSettings) -> None:
         raise RuntimeError("Database role provisioning failed; check local configuration") from None
 
 
+def _grant_vector_access(conn: psycopg.Connection, ingest: str, reader: str) -> None:
+    revision = conn.execute("SELECT version_num FROM public.alembic_version").fetchall()
+    if revision != [(VECTOR_REVISION,)]:
+        return
+    if (ingest, reader) not in {
+        ("m3_ingest", "m3_reader"),
+        ("m3_test_ingest", "m3_test_reader"),
+    }:
+        raise RuntimeError("FOMC vector permissions require isolated M3 roles")
+    roles = sql.SQL(", ").join(map(sql.Identifier, (ingest, reader)))
+    tables = sql.SQL(", ").join(sql.Identifier("public", table) for table in VECTOR_TABLES)
+    writable = sql.SQL(", ").join(sql.Identifier("public", table) for table in VECTOR_TABLES[1:])
+    conn.execute(sql.SQL("GRANT USAGE ON SCHEMA vector_support TO {}").format(roles))
+    conn.execute(sql.SQL("GRANT USAGE ON TYPE vector_support.vector TO {}").format(roles))
+    conn.execute(sql.SQL("GRANT SELECT ON {} TO {}").format(tables, roles))
+    conn.execute(sql.SQL("GRANT INSERT ON {} TO {}").format(writable, sql.Identifier(ingest)))
+    for table, columns in ((RUN_TABLE, RUN_UPDATES), (REQUEST_TABLE, REQUEST_UPDATES)):
+        conn.execute(
+            sql.SQL("GRANT UPDATE ({}) ON {} TO {}").format(
+                sql.SQL(", ").join(map(sql.Identifier, columns)),
+                sql.Identifier("public", table),
+                sql.Identifier(ingest),
+            )
+        )
+
+
 def grant_table_access(settings: DatabaseSettings) -> None:
     admin_name, ingest_name, read_name = settings.validate_role_names()
     try:
@@ -151,5 +185,6 @@ def grant_table_access(settings: DatabaseSettings) -> None:
                     sql.Identifier(ingest_name)
                 )
             )
+            _grant_vector_access(conn, ingest_name, read_name)
     except psycopg.Error:
         raise RuntimeError("Database permission setup failed") from None

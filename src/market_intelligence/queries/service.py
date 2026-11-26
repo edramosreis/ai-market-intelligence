@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import aggregate_order_by
 
 from market_intelligence.coinbase.models import INTERVAL, TimeWindow, closed_cutoff
 from market_intelligence.config import ApiSettings
+from market_intelligence.db.fomc_vector_schema import STOCK_REVISION, VECTOR_REVISION
 from market_intelligence.db.macro_tables import (
     macro_current,
     macro_ingestion_runs,
@@ -46,7 +47,6 @@ from market_intelligence.queries.models import (
 from market_intelligence.time_utils import as_utc, utc_now
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-EXPECTED_REVISION = "0008"
 
 
 class MarketQueries:
@@ -88,7 +88,7 @@ class MarketQueries:
                 macro_current,
             ):
                 conn.execute(sa.select(table).limit(1)).all()
-            return revisions == [EXPECTED_REVISION]
+            return revisions in ([STOCK_REVISION], [VECTOR_REVISION])
 
     def predicate(self, market_id: int, cutoff: datetime, window: TimeWindow | None = None) -> Any:
         conditions = [

@@ -36,6 +36,13 @@ _POLICY_KINDS = ("paragraph", "quote_paragraph", "list_item")
 
 
 @dataclass(frozen=True)
+class PassageScope:
+    kind: DocumentKind | None = None
+    meeting_end: date | None = None
+    published_on: date | None = None
+
+
+@dataclass(frozen=True)
 class SearchRequest:
     q: str
     limit: int = 5
@@ -52,6 +59,10 @@ class SearchRequest:
         if type(self.limit) is not int or not 1 <= self.limit <= 5:
             raise RetrievalError("invalid_parameters", 422)
         object.__setattr__(self, "q", query)
+
+    @property
+    def scope(self) -> PassageScope:
+        return PassageScope(self.kind, self.meeting_end, self.published_on)
 
 
 @dataclass(frozen=True)
@@ -106,18 +117,16 @@ def retrieval_snapshot(engine: Engine) -> Iterator[Connection]:
         yield conn
 
 
-def rank_current(conn: Connection, request: SearchRequest) -> Ranking:
-    """Return at most limit + 1 candidates, including one to detect truncation."""
-    query = sa.func.plainto_tsquery(_ENGLISH, sa.literal(request.q, type_=sa.Text()))
-    if not conn.scalar(sa.select(sa.func.numnode(query))):
-        raise RetrievalError("no_search_terms", 422)
+def current_policy_passages(
+    conn: Connection, scope: PassageScope
+) -> tuple[Coverage, sa.Select[tuple[str, str, str]]]:
     catalog = sa.select(documents.c.document_id).where(documents.c.document_id.in_(CATALOG_IDS))
-    if request.kind is not None:
-        catalog = catalog.where(documents.c.kind == request.kind.value)
-    if request.meeting_end is not None:
-        catalog = catalog.where(documents.c.meeting_end == request.meeting_end)
-    if request.published_on is not None:
-        catalog = catalog.where(documents.c.published_on == request.published_on)
+    if scope.kind is not None:
+        catalog = catalog.where(documents.c.kind == scope.kind.value)
+    if scope.meeting_end is not None:
+        catalog = catalog.where(documents.c.meeting_end == scope.meeting_end)
+    if scope.published_on is not None:
+        catalog = catalog.where(documents.c.published_on == scope.published_on)
     doc_ids: tuple[str, ...] = tuple(conn.scalars(catalog))
     states = processing_status(conn, DEFAULT_PARSER_CONFIG, DEFAULT_CHUNKER_CONFIG, doc_ids)
     counts = dict(not_collected=0, pending=0, failed=0, ready=0)
@@ -127,12 +136,8 @@ def rank_current(conn: Connection, request: SearchRequest) -> Ranking:
         if row["state"] == "ready":
             set_ids.append(row["passage_set_id"])
     coverage = Coverage(catalog_documents=len(states), **counts)
-    if not set_ids:
-        return Ranking(coverage, ())
-    vector = sa.func.to_tsvector(_ENGLISH, passages.c.body)
-    score = sa.func.ts_rank_cd(vector, query, 32).label("score")
-    ranked = (
-        sa.select(passages.c.passage_id, score)
+    policy: sa.Select[tuple[str, str, str]] = (
+        sa.select(passages.c.passage_id, passages.c.text_sha256, passages.c.body)
         .select_from(
             passages.join(
                 spans,
@@ -151,9 +156,26 @@ def rank_current(conn: Connection, request: SearchRequest) -> Ranking:
         .where(
             passages.c.passage_set_id.in_(set_ids),
             blocks.c.kind.in_(_POLICY_KINDS),
-            vector.bool_op("@@")(query),
         )
-        .order_by(score.desc(), passages.c.passage_id.collate("C"))
+    )
+    return coverage, policy
+
+
+def rank_current(conn: Connection, request: SearchRequest) -> Ranking:
+    """Return at most limit + 1 candidates, including one to detect truncation."""
+    query = sa.func.plainto_tsquery(_ENGLISH, sa.literal(request.q, type_=sa.Text()))
+    if not conn.scalar(sa.select(sa.func.numnode(query))):
+        raise RetrievalError("no_search_terms", 422)
+    coverage, passage_query = current_policy_passages(conn, request.scope)
+    if not coverage.ready:
+        return Ranking(coverage, ())
+    policy = passage_query.subquery()
+    vector = sa.func.to_tsvector(_ENGLISH, policy.c.body)
+    score = sa.func.ts_rank_cd(vector, query, 32).label("score")
+    ranked = (
+        sa.select(policy.c.passage_id, score)
+        .where(vector.bool_op("@@")(query))
+        .order_by(score.desc(), policy.c.passage_id.collate("C"))
         .limit(request.limit + 1)
     )
     return Ranking(

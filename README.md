@@ -189,6 +189,23 @@ PostgreSQL database. Cleanup targets only the M3 test project and preserves imag
 The launcher exposes no development-volume deletion or scheduler activation command.
 Scheduler and agent are fixed off; no model credentials enter these containers.
 
+The optional vector test mode builds pgvector 0.8.7 against the pinned PostgreSQL
+18.6 Bookworm server and matching development headers. From the linked M3
+worktree, use the existing ignored test configuration and run:
+
+```powershell
+python scripts/m3.py --test --vectors validate
+python scripts/m3.py --test --vectors build
+python scripts/m3.py --test --vectors quality
+python scripts/m3.py --test --vectors test
+python scripts/m3.py --test --vectors down
+```
+
+The vector suite applies revision `0009` in the disposable database. It checks
+exact cosine distance, tie ordering, invalid vectors, and reader permissions
+with synthetic coordinates. The ordinary stock PostgreSQL test path and local
+bootstrap still use `0008`.
+
 Provisioning the separate development database/API is opt-in: `build`, `db`, `migrate`,
 `check`, then `api` are individual launcher actions. They never run as part of `init`
 or validation. Review resolved isolation before provisioning, apply migrations before
@@ -1263,6 +1280,16 @@ at 24 KiB and keep quoted text intact. These reads make no provider or model cal
 Run the synthetic PostgreSQL verification through the M3 test commands above.
 Verification against the retained documents in the persistent M3 API is a separate
 acceptance step.
+
+## Test FOMC vector storage and search
+
+Run the isolated `--test --vectors` suite from the linked M3 checkout.
+The model-free tests reserve exact passage text hashes and response positions,
+validate supplied synthetic coordinates and commit each complete batch with
+its receipt. The internal reader ranks current policy passages by exact cosine
+distance within one profile and returns the existing source citations. It
+reports pending coverage when an eligible current passage lacks an embedding.
+The public keyword and citation routes continue to use their existing contract.
 
 ## Source package organization
 

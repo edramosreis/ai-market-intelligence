@@ -21,6 +21,7 @@ from market_intelligence.db.tables import open_interest_runs
 from market_intelligence.scheduler.jobs import JOBS, JobDefinition, JobId, SchedulerSettings
 from market_intelligence.scheduler.models import AuditReference, ChildOutcome, OutcomeCode
 from market_intelligence.scheduler.service import SchedulerService
+from tests.db_test_schema import check_schema, integration_revision
 
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 10, 10, 22, tzinfo=UTC)
@@ -61,7 +62,7 @@ def test_seeded_schema_matches_metadata(connection: Connection) -> None:
     }
     config = migration_config()
     config.attributes["connection"] = connection
-    command.check(config)
+    check_schema(config)
 
 
 def run_values() -> dict[str, Any]:
@@ -410,7 +411,7 @@ def test_migration_preserves_existing_catalogs_and_facts(connection: Connection)
     config = migration_config()
     config.attributes["connection"] = connection
     command.downgrade(config, "0004")
-    command.upgrade(config, "head")
+    command.upgrade(config, integration_revision())
     assert {
         table.name: connection.execute(sa.select(table)).mappings().all() for table in domain
     } == before
