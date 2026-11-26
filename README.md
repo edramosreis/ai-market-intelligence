@@ -1291,6 +1291,33 @@ distance within one profile and returns the existing source citations. It
 reports pending coverage when an eligible current passage lacks an embedding.
 The public keyword and citation routes continue to use their existing contract.
 
+### Prepare the opt-in M3 vector runtime
+
+From the linked M3 checkout, validate the runtime overlay and build its separate
+PostgreSQL and migration-tool images. These two commands only validate and build.
+
+```powershell
+.venv\Scripts\python.exe scripts/m3.py --vector-runtime validate
+.venv\Scripts\python.exe scripts/m3.py --vector-runtime build
+docker image inspect --format '{{.Id}}' ai-market-intelligence-postgres:m3-vector
+```
+
+The application image used by the existing M3 API retains its own tag. The
+overlay uses `ai-market-intelligence-postgres:m3-vector` for PostgreSQL and
+`ai-market-intelligence:m3-vector-tools` for migration and readiness.
+
+After the isolated backup and restore rehearsal has been reviewed, operate
+the existing M3 database with separate `db`, `migrate` and `check` actions.
+Each requires `--vector-runtime --database-image-id` with the full reviewed
+image ID. The launcher verifies the local Docker target, existing named database
+volume, mounts, role settings and image. `db` requires the stock M3 container
+to be stopped before replacing its image. `migrate` applies only `0009`.
+It can be repeated to verify the schema and reapply grants for existing roles.
+`check` verifies the extension and a cosine expression as the reader. Neither
+one-shot action starts the database. The stock launcher refuses operations
+against a database container marked for the vector runtime. API, scheduler,
+ingestion and recovery decisions stay outside the vector runtime switch.
+
 ## Source package organization
 
 `coinbase/` contains the fixed Coinbase spot-candle models, HTTP client (`client.py`)

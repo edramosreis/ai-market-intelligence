@@ -454,3 +454,15 @@ writer role and search inside a reader-only repeatable snapshot. The internal
 reader takes a precomputed vector and a profile ID. It returns pending coverage
 whenever eligible current passages lack embeddings. Treat persistent deployment
 and any model selection or spending as separate decisions.
+
+### M3 vector runtime
+
+Use `scripts/m3.py --vector-runtime validate` and `build` to review the overlay
+and build its separate PostgreSQL and tools tags without starting any service.
+After explicit deployment approval and verified backup/restore, `db`, `migrate`
+and `check` each require the reviewed full `--database-image-id`. The launcher
+verifies the existing M3 database container, its named local data volume,
+credentials and ports. The explicit migration targets only `0009` and reuses
+existing roles. The vector readiness check uses the read-only M3 role.
+The stock launcher refuses the marked vector container. Preserve the demo
+and keep API, ingestion, scheduler and volume cleanup outside the vector switch.
