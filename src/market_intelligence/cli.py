@@ -25,6 +25,10 @@ from market_intelligence.coinbase.service import ingest
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.candle_store import CandleStore
 from market_intelligence.db.connection import create_db_engine
+from market_intelligence.db.fomc_vector_runtime import (
+    check_vector_runtime,
+    initialize_vector_runtime,
+)
 from market_intelligence.db.fomc_vector_schema import STOCK_REVISION
 from market_intelligence.db.hyperliquid_store import HyperliquidStore
 from market_intelligence.db.setup import grant_table_access, provision_roles
@@ -346,9 +350,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     scheduler_cli.add_arguments(
         subcommands.add_parser("schedule", help="Preview or control opt-in scheduled ingestion")
     )
-    subcommands.add_parser("init-db", help="Provision local roles, migrate, and install grants")
+    init = subcommands.add_parser(
+        "init-db", help="Provision local roles, migrate, and install grants"
+    )
+    init.add_argument("--fomc-vectors", action="store_true", help="Apply isolated M3 revision 0009")
     check = subcommands.add_parser("check-db", help="Verify connection and schema revision")
     check.add_argument("--role", choices=[role.value for role in DatabaseRole], default="read")
+    check.add_argument(
+        "--fomc-vectors", action="store_true", help="Check isolated M3 revision 0009"
+    )
     server = subcommands.add_parser("serve", help="Run the read-only historical market API")
     server.add_argument("--host", default="127.0.0.1")
     server.add_argument("--port", type=int, default=8000)
@@ -443,6 +453,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         subcommands.add_parser("process-fomc", help="Process stored FOMC originals in M3")
     )
     args = parser.parse_args(argv)
+    vectors = getattr(args, "fomc_vectors", False)
+    if args.command == "check-db" and vectors and args.role != DatabaseRole.READ:
+        parser.error("Vector runtime checks require the reader role")
     if args.command == "process-fomc":
         return processing_cli.execute(args)
     if args.command == "ingest-fomc":
@@ -461,10 +474,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.command in {"ingest-bls", "ingest-fed"}
             else None
         )
-        settings = DatabaseSettings()  # type: ignore[call-arg]
+        settings = (
+            DatabaseSettings(_env_file=None) if vectors else DatabaseSettings()  # type: ignore[call-arg]
+        )
         if args.command == "init-db":
-            initialize_database(settings)
+            if vectors:
+                initialize_vector_runtime(settings, migration_config())
+            else:
+                initialize_database(settings)
             print("Database initialized; migrations and role grants applied.")
+        elif args.command == "check-db" and vectors:
+            check_vector_runtime(settings)
+            print("M3 vector database ready at revision 0009.")
         elif args.command == "serve":
             import uvicorn
 
