@@ -1,0 +1,19 @@
+# Standalone M3 overlay selected only by scripts/m3.py --vector-runtime.
+services:
+  db:
+    image: ${M3_VECTOR_DATABASE_IMAGE:-ai-market-intelligence-postgres:m3-vector}
+    pull_policy: never
+    labels:
+      org.market-intelligence.m3.vector-runtime: "v1"
+    build:
+      context: ./docker/m3-vector-postgres
+      dockerfile: Dockerfile
+      target: vector
+  migrate:
+    image: ai-market-intelligence:m3-vector-tools
+    pull_policy: never
+    command: [init-db, --fomc-vectors]
+  check:
+    image: ai-market-intelligence:m3-vector-tools
+    pull_policy: never
+    command: [check-db, --fomc-vectors]

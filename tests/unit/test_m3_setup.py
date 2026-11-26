@@ -416,6 +416,7 @@ def test_fomc_manual_operations_are_exact(
         side_effect=[
             subprocess.CompletedProcess([], 0, json.dumps(model), ""),
             subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "", ""),
         ]
     )
     monkeypatch.setattr(launcher.subprocess, "run", execute)
@@ -479,6 +480,7 @@ def test_processing_commands_use_only_the_validated_service(
     launch = MagicMock(
         side_effect=[
             subprocess.CompletedProcess([], 0, json.dumps(model), ""),
+            subprocess.CompletedProcess([], 0, "", ""),
             subprocess.CompletedProcess([], 0),
         ]
     )
@@ -536,3 +538,240 @@ def test_vector_mode_cannot_select_the_persistent_database(launcher: ModuleType)
     with pytest.raises(SystemExit) as error:
         launcher.main(["--vectors", "build"])
     assert error.value.code == 2
+
+
+RUNTIME_IMAGE_ID = "sha256:" + "a" * 64
+
+
+def runtime_model(
+    launcher: ModuleType, root: Path, values: dict[str, str], *, pin: bool = False
+) -> dict[str, Any]:
+    model = resolved_model(root, values, False)
+    services = model["services"]
+    services["db"].update(
+        image=RUNTIME_IMAGE_ID if pin else launcher.VECTOR_RUNTIME_IMAGE,
+        pull_policy="never",
+        labels={launcher.VECTOR_RUNTIME_LABEL: "v1"},
+        build={
+            "context": str(root / "docker" / "m3-vector-postgres"),
+            "dockerfile": "Dockerfile",
+            "target": "vector",
+        },
+    )
+    for name in ("migrate", "check", "ingest", "process"):
+        services[name]["profiles"] = ["tools"]
+    services["scheduler"]["profiles"] = ["scheduler"]
+    for name in ("migrate", "check"):
+        services[name].update(image=launcher.VECTOR_TOOLS_IMAGE, pull_policy="never")
+        services[name]["command"].append("--fomc-vectors")
+    return model
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [None, "demo", "test", "image", "app_image", "volume", "role", "scheduler", "profile", "flag"],
+)
+def test_runtime_overlay_keeps_the_exact_project_and_service_contract(
+    launcher: ModuleType, linked_root: Path, mutation: str | None
+) -> None:
+    values = configuration(linked_root, False)
+    model = runtime_model(launcher, linked_root, values, pin=True)
+    services = model["services"]
+    if mutation == "demo":
+        model["name"] = "ai-market-intelligence"
+    elif mutation == "test":
+        model["name"] = "ai-market-intelligence-m3-tests"
+    elif mutation == "image":
+        services["db"]["image"] = launcher.VECTOR_TEST_IMAGE
+    elif mutation == "app_image":
+        services["migrate"]["image"] = "ai-market-intelligence:m3"
+    elif mutation == "volume":
+        model["volumes"]["postgres_data"]["name"] = "ai-market-intelligence_postgres_data"
+    elif mutation == "role":
+        services["check"]["environment"]["POSTGRES_READ_USER"] = "m3_admin"
+    elif mutation == "scheduler":
+        services["scheduler"]["environment"]["SCHEDULER_ENABLED"] = "true"
+    elif mutation == "profile":
+        services["scheduler"]["profiles"] = []
+    elif mutation == "flag":
+        services["migrate"]["command"] = ["init-db"]
+    if mutation is None:
+        launcher.validate_model(
+            model,
+            linked_root,
+            False,
+            values,
+            vector_runtime=True,
+            database_image_id=RUNTIME_IMAGE_ID,
+        )
+    else:
+        with pytest.raises(launcher.IsolationError):
+            launcher.validate_model(
+                model,
+                linked_root,
+                False,
+                values,
+                vector_runtime=True,
+                database_image_id=RUNTIME_IMAGE_ID,
+            )
+
+
+def test_vector_build_only_builds_the_separate_local_images(
+    launcher: ModuleType, linked_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    values = configuration(linked_root, False)
+    model = runtime_model(launcher, linked_root, values)
+    run = MagicMock(
+        side_effect=[
+            subprocess.CompletedProcess([], 0, json.dumps(model), ""),
+            subprocess.CompletedProcess([], 0, "unix:///var/run/docker.sock", ""),
+            subprocess.CompletedProcess([], 0),
+        ]
+    )
+    monkeypatch.setattr(launcher.subprocess, "run", run)
+    monkeypatch.setenv("M3_VECTOR_DATABASE_IMAGE", "unreviewed")
+    assert launcher.run(linked_root, False, "build", vector_runtime=True) == 0
+    resolved = run.call_args_list[0]
+    assert str(linked_root / "compose.m3.vector.yaml") in resolved.args[0]
+    assert "M3_VECTOR_DATABASE_IMAGE" not in resolved.kwargs["env"]
+    assert run.call_args.args[0][-3:] == ["build", "db", "migrate"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--test", "--vector-runtime", "validate"],
+        ["--vector-runtime", "api"],
+        ["--vector-runtime", "fomc-ingest"],
+        ["--vector-runtime", "down"],
+        ["--vector-runtime", "migrate"],
+        ["check", "--database-image-id", RUNTIME_IMAGE_ID],
+    ],
+)
+def test_vector_runtime_rejects_inapplicable_commands(
+    launcher: ModuleType, args: list[str]
+) -> None:
+    with pytest.raises(SystemExit) as result:
+        launcher.main(args)
+    assert result.value.code == 2
+
+
+def test_stock_launcher_refuses_a_vector_database(
+    launcher: ModuleType, linked_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    values = configuration(linked_root, False)
+    run = MagicMock(
+        return_value=subprocess.CompletedProcess(
+            [], 0, json.dumps(resolved_model(linked_root, values, False)), ""
+        )
+    )
+    monkeypatch.setattr(launcher.subprocess, "run", run)
+    monkeypatch.setattr(
+        launcher,
+        "existing_database",
+        MagicMock(return_value={"Config": {"Labels": {launcher.VECTOR_RUNTIME_LABEL: "v1"}}}),
+    )
+    with pytest.raises(launcher.IsolationError, match="uses the vector runtime"):
+        launcher.run(linked_root, False, "db")
+    run.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("action", "mutation", "expected"),
+    [
+        ("db", None, ["up", "-d", "--wait", "--no-deps", "--no-build", "--pull", "never", "db"]),
+        ("db", "stock_running", None),
+        ("db", "unexpected_running_service", None),
+        ("check", None, ["run", "--rm", "--no-deps", "--pull", "never", "check"]),
+        ("migrate", None, ["run", "--rm", "--no-deps", "--pull", "never", "migrate"]),
+        ("migrate", "wrong_image_id", None),
+        ("migrate", "wrong_volume", None),
+        ("migrate", "wrong_mount", None),
+        ("migrate", "wrong_dns", None),
+        ("migrate", "wrong_role", None),
+        ("migrate", "stock_running", None),
+        ("migrate", "not_healthy", None),
+    ],
+)
+def test_vector_operations_verify_the_existing_target_and_never_start_dependencies(
+    launcher: ModuleType,
+    linked_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    mutation: str | None,
+    expected: list[str] | None,
+) -> None:
+    values = configuration(linked_root, False)
+    vector = action != "db" and mutation != "stock_running"
+    project = launcher.PROJECT
+    database: dict[str, Any] = {
+        "Image": RUNTIME_IMAGE_ID,
+        "Config": {
+            "Image": RUNTIME_IMAGE_ID if vector else launcher.POSTGRES_IMAGE,
+            "Labels": {launcher.VECTOR_RUNTIME_LABEL: "v1"} if vector else {},
+            "Env": [
+                f"{key}={value}"
+                for key, value in launcher.expected_environment("db", values, False).items()
+            ],
+        },
+        "HostConfig": {
+            "NetworkMode": project + "_default",
+            "PortBindings": {"5432/tcp": [{"HostIp": "127.0.0.1", "HostPort": "55433"}]},
+        },
+        "State": {
+            "Status": "running" if vector or mutation == "stock_running" else "exited",
+            "Health": {"Status": "starting" if mutation == "not_healthy" else "healthy"},
+        },
+        "Mounts": [
+            {
+                "Type": "volume",
+                "Name": project + "_postgres_data",
+                "Destination": "/var/lib/postgresql",
+                "RW": True,
+            },
+        ],
+    }
+    volume: dict[str, Any] = {
+        "Name": project + "_postgres_data",
+        "Driver": "local",
+        "Scope": "local",
+        "Labels": {
+            "com.docker.compose.project": project,
+            "com.docker.compose.volume": "postgres_data",
+        },
+    }
+    if mutation == "wrong_volume":
+        volume["Driver"] = "external"
+    elif mutation == "wrong_mount":
+        database["Mounts"][0]["RW"] = False
+    elif mutation == "wrong_dns":
+        database["HostConfig"]["NetworkMode"] = "host"
+    elif mutation == "wrong_role":
+        database["Config"]["Env"].append("POSTGRES_USER=market_admin")
+    inspect = MagicMock(
+        side_effect=lambda kind, *_: (
+            volume
+            if kind == "volume"
+            else {"Id": "unexpected" if mutation == "wrong_image_id" else RUNTIME_IMAGE_ID}
+        )
+    )
+    monkeypatch.setattr(launcher, "inspect_one", inspect)
+    monkeypatch.setattr(launcher, "existing_database", MagicMock(return_value=database))
+    monkeypatch.setattr(
+        launcher,
+        "docker_output",
+        MagicMock(return_value="api\ndb" if mutation == "unexpected_running_service" else "db"),
+    )
+    monkeypatch.setattr(launcher, "check_ports", MagicMock())
+    if expected is None:
+        with pytest.raises(launcher.IsolationError):
+            launcher.prepare_vector_action(
+                action, ["docker", "compose"], linked_root, {}, values, RUNTIME_IMAGE_ID
+            )
+    else:
+        assert (
+            launcher.prepare_vector_action(
+                action, ["docker", "compose"], linked_root, {}, values, RUNTIME_IMAGE_ID
+            )
+            == expected
+        )
