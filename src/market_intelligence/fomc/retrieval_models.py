@@ -1,14 +1,18 @@
 """Typed FOMC retrieval response and controlled reader failures."""
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from pydantic import BaseModel
 
 from market_intelligence.fomc.models import DocumentKind
 
+MAX_RESPONSE_BYTES = 24 * 1024
 NoMatchStatus = Literal["no_documents_in_scope", "corpus_not_ready", "no_lexical_match"]
+VectorSearchStatus = Literal[
+    "ok", "no_documents_in_scope", "corpus_not_ready", "no_eligible_passages", "vector_pending"
+]
 
 
 class RetrievalError(ValueError):
@@ -78,6 +82,38 @@ class SearchResult(BaseModel):
     status: Literal["matches"] | NoMatchStatus
     has_more: bool
     truncation_reason: Literal["limit", "byte_budget"] | None = None
+
+
+class VectorSearchHit(BaseModel):
+    text: str
+    citation: Citation
+    distance: float
+
+
+class VectorSearchResult(BaseModel):
+    results: list[VectorSearchHit]
+    coverage: Coverage
+    status: VectorSearchStatus
+    profile_id: str
+    eligible_passages: int
+    embedded_passages: int
+    has_more: bool
+    truncation_reason: Literal["limit", "byte_budget"] | None = None
+
+
+def bound_search_result[Result: SearchResult | VectorSearchResult](result: Result) -> Result:
+    while len(result.model_dump_json().encode("utf-8")) > MAX_RESPONSE_BYTES:
+        if len(result.results) <= 1:
+            raise RetrievalError("evidence_unavailable", 503)
+        result = cast(
+            Result,
+            result.model_copy(
+                update=dict(
+                    results=result.results[:-1], has_more=True, truncation_reason="byte_budget"
+                )
+            ),
+        )
+    return result
 
 
 class PassageDetail(BaseModel):

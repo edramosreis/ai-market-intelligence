@@ -40,6 +40,12 @@ jobs:
         working-directory: ${{ runner.temp }}/m3-config
         run: python3 scripts/m3.py --test --vectors test
 
+      - name: Stock PostgreSQL compatibility
+        working-directory: ${{ runner.temp }}/m3-config
+        run: |
+          python3 scripts/m3.py --test --vectors down
+          python3 scripts/m3.py --test test
+
       - name: Clean up test environment
         if: always() && steps.isolated-config.outcome == 'success'
         working-directory: ${{ runner.temp }}/m3-config

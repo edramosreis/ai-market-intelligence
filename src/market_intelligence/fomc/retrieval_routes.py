@@ -12,9 +12,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from market_intelligence.fomc.citations import FomcQueries
 from market_intelligence.fomc.models import DocumentKind
 from market_intelligence.fomc.retrieval import SearchRequest
-from market_intelligence.fomc.retrieval_models import PassageDetail, RetrievalError, SearchResult
+from market_intelligence.fomc.retrieval_models import (
+    MAX_RESPONSE_BYTES,
+    PassageDetail,
+    RetrievalError,
+    SearchResult,
+    bound_search_result,
+)
 
-MAX_RESPONSE_BYTES = 24 * 1024
 _NO_STORE = {"Cache-Control": "no-store"}
 _SEARCH_PARAMETERS = frozenset(("q", "limit", "kind", "meeting_end", "published_on"))
 _DATE_LABEL = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -28,22 +33,7 @@ def _encode(model: BaseModel) -> bytes:
 
 
 def _search_body(result: SearchResult) -> bytes:
-    payload = _encode(result)
-    if len(payload) <= MAX_RESPONSE_BYTES:
-        return payload
-    for count in range(len(result.results) - 1, 0, -1):
-        payload = _encode(
-            result.model_copy(
-                update=dict(
-                    results=result.results[:count],
-                    has_more=True,
-                    truncation_reason="byte_budget",
-                )
-            )
-        )
-        if len(payload) <= MAX_RESPONSE_BYTES:
-            return payload
-    raise RetrievalError("evidence_unavailable", 503)
+    return _encode(bound_search_result(result))
 
 
 def _detail_body(detail: PassageDetail) -> bytes:

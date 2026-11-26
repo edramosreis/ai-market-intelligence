@@ -266,6 +266,21 @@ def _citation(conn: Connection, row: RowMapping) -> PublishedPassage:
     return PublishedPassage(body, citation, is_current)
 
 
+def current_published_passages(
+    conn: Connection, passage_ids: tuple[str, ...]
+) -> tuple[PublishedPassage, ...]:
+    rows = _published_rows(conn, passage_ids)
+    published = []
+    for passage_id in passage_ids:
+        if passage_id not in rows:
+            raise _unavailable()
+        passage = _citation(conn, rows[passage_id])
+        if not passage.is_current:
+            raise _unavailable()
+        published.append(passage)
+    return tuple(published)
+
+
 class FomcQueries:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
@@ -281,21 +296,13 @@ class FomcQueries:
                     has_more=False,
                 )
             chosen = ranking.candidates[: request.limit]
-            rows = _published_rows(conn, tuple(candidate.passage_id for candidate in chosen))
-            hits: list[SearchHit] = []
-            for candidate in chosen:
-                if candidate.passage_id not in rows:
-                    raise _unavailable()
-                published = _citation(conn, rows[candidate.passage_id])
-                if not published.is_current:
-                    raise _unavailable()
-                hits.append(
-                    SearchHit(
-                        text=published.text,
-                        citation=published.citation,
-                        score=candidate.score,
-                    )
-                )
+            passages = current_published_passages(
+                conn, tuple(candidate.passage_id for candidate in chosen)
+            )
+            hits = [
+                SearchHit(text=published.text, citation=published.citation, score=candidate.score)
+                for candidate, published in zip(chosen, passages, strict=True)
+            ]
             more = len(ranking.candidates) > request.limit
             return SearchResult(
                 results=hits,

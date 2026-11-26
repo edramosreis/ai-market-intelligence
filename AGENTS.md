@@ -447,6 +447,10 @@ From the linked worktree, run `scripts/m3.py --test --vectors` with
 guarded tmpfs test project and a dedicated locally built PostgreSQL image.
 Keep its PostgreSQL base and PGDG header versions equal. Pin the pgvector source
 and header packages with checksums and keep compiler dependencies in the
-builder. Test stock configuration separately and retain revision `0008` until
-an additive migration is reviewed. Install the extension for foundation
-checks only in the rolled-back `db-test` fixture. Use synthetic vectors in CI.
+builder. Stock development and tests use revision `0008`. The guarded vector
+test image applies `0009` and runs the same regressions plus synthetic publication
+and citation-backed vector search. Keep vector publishing inside the isolated
+writer role and search inside a reader-only repeatable snapshot. The internal
+reader takes a precomputed vector and a profile ID. It returns pending coverage
+whenever eligible current passages lack embeddings. Treat persistent deployment
+and any model selection or spending as separate decisions.
