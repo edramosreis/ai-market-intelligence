@@ -9,6 +9,8 @@ import sqlalchemy as sa
 from sqlalchemy import Connection
 from sqlalchemy.exc import DBAPIError
 
+from market_intelligence.db.fomc_vector_schema import VECTOR_REVISION
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(
@@ -26,22 +28,16 @@ def vector_catalog(connection: Connection) -> Connection:
         """
     ).one()
     assert tuple(server) == ("market_intelligence_test", "m3_test_admin", "180006")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar() == "0008"
+    assert (
+        connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar()
+        == VECTOR_REVISION
+    )
     assert (
         connection.exec_driver_sql(
             "SELECT default_version FROM pg_available_extensions WHERE name = 'vector'"
         ).scalar_one()
         == "0.8.7"
     )
-    assert (
-        connection.exec_driver_sql(
-            "SELECT count(*) FROM pg_extension WHERE extname = 'vector'"
-        ).scalar_one()
-        == 0
-    )
-    connection.exec_driver_sql("CREATE SCHEMA vector_support")
-    connection.exec_driver_sql("REVOKE ALL ON SCHEMA vector_support FROM PUBLIC")
-    connection.exec_driver_sql("CREATE EXTENSION vector WITH SCHEMA vector_support VERSION '0.8.7'")
     connection.exec_driver_sql(
         """
         CREATE TABLE vector_support.sample_passages (

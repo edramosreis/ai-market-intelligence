@@ -13,6 +13,7 @@ from sqlalchemy.exc import DataError, IntegrityError
 
 from market_intelligence.cli import migration_config
 from market_intelligence.db.tables import candles, treasury_ingestion_runs, treasury_yields
+from tests.db_test_schema import check_schema, integration_revision
 from tests.integration.test_schema import candle_values
 
 pytestmark = pytest.mark.integration
@@ -140,7 +141,7 @@ def test_upgrade_preserves_existing_candles(connection: Connection) -> None:
     command.downgrade(config, "0001")
     assert "treasury_yields" not in sa.inspect(connection).get_table_names()
     assert connection.execute(sa.select(candles.c.close)).scalar_one() == values["close"]
-    command.upgrade(config, "head")
+    command.upgrade(config, integration_revision())
     assert "treasury_yields" in sa.inspect(connection).get_table_names()
     assert connection.execute(sa.select(candles.c.close)).scalar_one() == values["close"]
-    command.check(config)
+    check_schema(config)

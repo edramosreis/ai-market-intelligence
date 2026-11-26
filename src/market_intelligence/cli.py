@@ -25,6 +25,7 @@ from market_intelligence.coinbase.service import ingest
 from market_intelligence.config import DatabaseRole, DatabaseSettings
 from market_intelligence.db.candle_store import CandleStore
 from market_intelligence.db.connection import create_db_engine
+from market_intelligence.db.fomc_vector_schema import STOCK_REVISION
 from market_intelligence.db.hyperliquid_store import HyperliquidStore
 from market_intelligence.db.setup import grant_table_access, provision_roles
 from market_intelligence.db.treasury_store import TreasuryStore
@@ -65,11 +66,13 @@ def migration_config() -> Config:
     return Config(str(path))
 
 
-def initialize_database(settings: DatabaseSettings) -> None:
+def initialize_database(
+    settings: DatabaseSettings, *, target_revision: str = STOCK_REVISION
+) -> None:
     config = migration_config()
     provision_roles(settings)
     config.attributes["settings"] = settings
-    command.upgrade(config, "head")
+    command.upgrade(config, target_revision)
     grant_table_access(settings)
 
 

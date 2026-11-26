@@ -14,6 +14,7 @@ from market_intelligence.db.connection import create_db_engine
 from market_intelligence.db.fomc_tables import TABLES, fomc_documents, fomc_ingestion_runs
 from market_intelligence.db.tables import candles, metadata
 from market_intelligence.fomc.catalog import ADDITIONAL_BATCHES, CATALOG_DOCUMENTS, PILOT_DOCUMENTS
+from tests.db_test_schema import check_schema, integration_revision
 from tests.integration.test_schema import candle_values
 
 pytestmark = pytest.mark.integration
@@ -36,7 +37,7 @@ def test_catalog_and_populated_0005_upgrade_preserve_native_tables(connection: C
     config.attributes["connection"] = connection
     command.downgrade(config, "0005")
     assert "fomc_documents" not in sa.inspect(connection).get_table_names()
-    command.upgrade(config, "head")
+    command.upgrade(config, integration_revision())
     assert {
         table.name: connection.execute(sa.select(table)).mappings().all() for table in native
     } == before
@@ -55,7 +56,7 @@ def test_catalog_and_populated_0005_upgrade_preserve_native_tables(connection: C
         )
         for spec in CATALOG_DOCUMENTS
     }
-    command.check(config)
+    check_schema(config)
 
 
 def test_catalog_upgrade_preserves_old_rows_and_refuses_loss_of_batch_audit(
@@ -71,7 +72,7 @@ def test_catalog_upgrade_preserves_old_rows_and_refuses_loss_of_batch_audit(
         "error_code": "interrupted",
     }
     connection.execute(fomc_ingestion_runs.insert().values(original_run))
-    command.upgrade(config, "head")
+    command.upgrade(config, integration_revision())
     rows = connection.execute(sa.select(fomc_documents)).mappings().all()
     assert len(before) == 4 and len(rows) == 16
     assert all(row in rows for row in before)

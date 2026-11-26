@@ -23,10 +23,12 @@ from market_intelligence.db.fomc_tables import (
 from market_intelligence.db.fomc_tables import (
     fomc_raw_versions as versions,
 )
+from market_intelligence.db.fomc_vector_schema import VECTOR_REVISION, VECTOR_TABLES
 from market_intelligence.fomc.artifacts import ArtifactStore
 from market_intelligence.fomc.catalog import PILOT_DOCUMENTS
 from market_intelligence.fomc.client import FetchedCalendar
 from market_intelligence.fomc.validation import validate_calendar, validate_document
+from tests.db_test_schema import integration_revision
 from tests.fomc_fakes import calendar_body, document_body, fetched
 
 pytestmark = pytest.mark.integration
@@ -42,10 +44,13 @@ def store(database_settings: DatabaseSettings, admin_engine: Engine) -> Iterator
     finally:
         engine.dispose()
         with admin_engine.begin() as conn:
+            tables: tuple[str, ...] = PROCESSING_TABLE_NAMES
+            if integration_revision() == VECTOR_REVISION:
+                tables = (*tables, *VECTOR_TABLES)
             conn.execute(
                 sa.text(
                     "TRUNCATE fomc_current, fomc_fetch_receipts, "
-                    "fomc_raw_versions, fomc_ingestion_runs, " + ", ".join(PROCESSING_TABLE_NAMES)
+                    "fomc_raw_versions, fomc_ingestion_runs, " + ", ".join(tables)
                 )
             )
 

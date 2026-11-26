@@ -26,6 +26,7 @@ from market_intelligence.db.tables import (
     treasury_yields,
 )
 from market_intelligence.db.treasury_store import TreasuryStore
+from tests.db_test_schema import integration_revision
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +48,7 @@ def database_settings() -> DatabaseSettings:
     settings = DatabaseSettings(_env_file=None)  # type: ignore[call-arg]
     if settings.db != "market_intelligence_test" or settings.host != "db-test":
         pytest.fail("Refusing integration tests outside the isolated Compose test database")
-    initialize_database(settings)
+    initialize_database(settings, target_revision=integration_revision())
     return settings
 
 

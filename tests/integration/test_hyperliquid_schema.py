@@ -23,6 +23,7 @@ from market_intelligence.db.tables import (
     perpetual_instruments,
     treasury_yields,
 )
+from tests.db_test_schema import integration_revision
 from tests.integration.test_schema import candle_values
 from tests.integration.test_treasury_schema import treasury_yield_values
 
@@ -188,7 +189,7 @@ def test_upgrade_preserves_coinbase_and_treasury(connection: Connection) -> None
     config.attributes["connection"] = connection
     command.downgrade(config, "0002")
     assert "funding_events" not in sa.inspect(connection).get_table_names()
-    command.upgrade(config, "head")
+    command.upgrade(config, integration_revision())
     assert connection.execute(sa.select(candles.c.close)).scalar_one() == btc["close"]
     assert (
         connection.execute(sa.select(treasury_yields.c.yield_percent)).scalar_one()

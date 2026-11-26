@@ -12,6 +12,7 @@ from sqlalchemy.exc import DataError, IntegrityError
 from market_intelligence.cli import initialize_database, migration_config
 from market_intelligence.config import DatabaseSettings
 from market_intelligence.db.tables import assets, candles, data_sources, ingestion_runs, markets
+from tests.db_test_schema import check_schema, integration_revision
 
 pytestmark = pytest.mark.integration
 
@@ -68,7 +69,7 @@ def test_reference_seed_and_schema_match_migrations(connection: Connection) -> N
     assert market["quote_asset_code"] == "USD"
     config = migration_config()
     config.attributes["connection"] = connection
-    command.check(config)
+    check_schema(config)
 
 
 def test_decimal_precision_and_utc_round_trip(connection: Connection) -> None:
@@ -184,7 +185,7 @@ def test_source_product_identity_is_unique(connection: Connection) -> None:
 def test_bootstrap_is_repeatable_without_duplicate_reference_data(
     database_settings: DatabaseSettings, admin_engine: Engine
 ) -> None:
-    initialize_database(database_settings)
+    initialize_database(database_settings, target_revision=integration_revision())
     with admin_engine.connect() as conn:
         assert conn.execute(sa.select(sa.func.count()).select_from(markets)).scalar_one() == 1
 
@@ -196,6 +197,6 @@ def test_migration_can_downgrade_and_reapply_inside_a_rolled_back_transaction(
     config.attributes["connection"] = connection
     command.downgrade(config, "base")
     assert "candles" not in sa.inspect(connection).get_table_names()
-    command.upgrade(config, "head")
+    command.upgrade(config, integration_revision())
     assert "candles" in sa.inspect(connection).get_table_names()
     assert connection.execute(sa.select(sa.func.count()).select_from(markets)).scalar_one() == 1
