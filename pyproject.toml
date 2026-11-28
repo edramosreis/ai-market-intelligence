@@ -12,6 +12,7 @@ dependencies = [
     "alembic>=1.16,<2",
     "fastapi>=0.115,<1",
     "httpx>=0.28,<1",
+    "httpx2>=2.13,<3",
     "openai>=3.24,<4",
     "psycopg[binary]>=3.2,<4",
     "pydantic-settings>=2.10,<3",
@@ -19,11 +20,14 @@ dependencies = [
     "uvicorn>=0.34,<1",
 ]
 
+[project.optional-dependencies]
+embedding-pilot = ["tiktoken==0.14.0"]
+
 [project.scripts]
 market-intelligence = "market_intelligence.cli:main"
 
 [dependency-groups]
-dev = ["httpx2>=2.13,<3", "mypy>=1.15,<3", "pytest>=8.3,<10", "ruff>=0.11,<1"]
+dev = ["mypy>=1.15,<3", "pytest>=8.3,<10", "ruff>=0.11,<1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/market_intelligence"]
