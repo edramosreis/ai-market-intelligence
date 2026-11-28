@@ -454,3 +454,14 @@ writer role and search inside a reader-only repeatable snapshot. The internal
 reader takes a precomputed vector and a profile ID. It returns pending coverage
 whenever eligible current passages lack embeddings. Treat persistent deployment
 and any model selection or spending as separate decisions.
+
+### Manual FOMC embedding pilot
+
+The `embedding-pilot` uv extra pins the offline tokenizer. Keep the reviewed
+vocabulary, passage manifest, exact approval and ledger in ignored private
+storage. Use the one-shot script only on the linked M3 checkout with the
+reviewed code revision, isolated revision `0009` and a separately scoped
+key. Verify the paid allowance before any dispatch and preserve unknown
+outcomes. Deterministic tests use the official SDK in-memory transport
+and the guarded `db-test` database with synthetic data. Keep this path
+separate from HTTP, scheduler and native provider collection.

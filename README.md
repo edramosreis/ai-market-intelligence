@@ -1291,6 +1291,32 @@ distance within one profile and returns the existing source citations. It
 reports pending coverage when an eligible current passage lacks an embedding.
 The public keyword and citation routes continue to use their existing contract.
 
+### Prepare the one-shot FOMC embedding pilot
+
+The pilot reads a checked FOMC manifest and a separately approved allocation.
+It builds passage embeddings with the existing writer and compares a fixed
+query batch with the cited read-only search. It records exact reservations
+and provider receipts in a private ledger that can be created only once.
+Unknown outcomes stop the run for review. The API, scheduler and default
+development setup require no embedding credentials.
+
+Install the locked additional tokenizer dependency from the linked M3 checkout.
+Obtain the pinned `cl100k_base` vocabulary separately and verify its SHA-256.
+The tokenizer loads the local bytes and verifies their checksum before use.
+
+```powershell
+uv sync --locked --extra embedding-pilot
+.venv\Scripts\python.exe scripts/run_m3_embedding_pilot.py --help
+```
+
+Live execution requires the approved file and SHA-256, verified private
+manifest and vocabulary files, the exact clean code revision and the
+isolated M3 database at `0009`. The approval file binds the profile
+epoch, the OpenAI project, exact passage and query token allocations,
+account rate limits and the spending allowance. Provide the separate
+project key only to the one-shot process as `M3_EMBEDDING_API_KEY`. Use
+the isolated test suite with synthetic SDK responses for development.
+
 ## Source package organization
 
 `coinbase/` contains the fixed Coinbase spot-candle models, HTTP client (`client.py`)
