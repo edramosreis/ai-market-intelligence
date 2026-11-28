@@ -65,14 +65,16 @@ def load_profile(conn: Connection, profile_id: str) -> EmbeddingProfile:
     return profile
 
 
-def register_embedding_profile(engine: Engine, profile: EmbeddingProfile) -> str:
+def register_embedding_profile(
+    engine: Engine, profile: EmbeddingProfile, *, must_create: bool = False
+) -> str:
     """Register one immutable configuration explicitly with the isolated administrator."""
     require_vector_target(engine, "admin")
     profile_id = profile.profile_id
     try:
         with engine.begin() as conn:
             check_vector_connection(conn, engine)
-            conn.execute(
+            inserted = conn.execute(
                 sa.text(
                     """
                     INSERT INTO public.fomc_embedding_profiles
@@ -82,6 +84,7 @@ def register_embedding_profile(engine: Engine, profile: EmbeddingProfile) -> str
                     VALUES (:profile, :config, :epoch, :provider, :model, :dimensions,
                             :tokenizer, :tokenizer_revision, :recipe, :coordinates, :metric)
                     ON CONFLICT (profile_id) DO NOTHING
+                    RETURNING profile_id
                     """
                 ),
                 dict(
@@ -97,7 +100,9 @@ def register_embedding_profile(engine: Engine, profile: EmbeddingProfile) -> str
                     coordinates=VECTOR_COORDINATE_FORMAT,
                     metric=VECTOR_DISTANCE_METRIC,
                 ),
-            )
+            ).scalar_one_or_none()
+            if must_create and inserted is None:
+                raise EmbeddingError("embedding_profile_already_exists")
             if load_profile(conn, profile_id) != profile:
                 raise EmbeddingError("vector_unavailable")
     except sa.exc.DBAPIError:

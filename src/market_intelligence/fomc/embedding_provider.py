@@ -132,13 +132,20 @@ def _parse(
 
 
 class OpenAIEmbeddingProvider:
-    def __init__(self, key: SecretStr, *, transport: httpx.BaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        key: SecretStr,
+        *,
+        project: str | None = None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
         secret = key.get_secret_value()
         if not secret or secret.strip() != secret:
             raise EmbeddingError("embedding_key_unavailable")
         timeout = httpx.Timeout(20.0, connect=5.0)
         self._client = OpenAI(
             api_key=secret,
+            project=project,
             base_url=_BASE_URL,
             timeout=timeout,
             max_retries=0,

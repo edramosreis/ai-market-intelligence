@@ -160,7 +160,12 @@ class FomcEmbeddingStore:
             raise EmbeddingError("vector_unavailable") from None
 
     def start_run(
-        self, profile_id: str, scope: PassageScope, *, request_limit: int = MAX_RUN_REQUESTS
+        self,
+        profile_id: str,
+        scope: PassageScope,
+        *,
+        request_limit: int = MAX_RUN_REQUESTS,
+        expected_inputs: tuple[EmbeddingInput, ...] | None = None,
     ) -> EmbeddingRun | None:
         if type(request_limit) is not int or not 1 <= request_limit <= MAX_RUN_REQUESTS:
             raise EmbeddingError("invalid_request_limit")
@@ -169,6 +174,8 @@ class FomcEmbeddingStore:
             run = EmbeddingRun(
                 uuid4(), profile_id, scope, _current_inputs(conn, scope), request_limit
             )
+            if expected_inputs is not None and run.inputs != expected_inputs:
+                raise EmbeddingError("embedding_manifest_changed")
             if not run.inputs:
                 return None
             remaining = _missing(conn, run)
